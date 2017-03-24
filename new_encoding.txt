@@ -1,0 +1,188 @@
+New, simpler encoding
+=====================
+
+Instead of comprising a message of tagged data fields where the tags as well as the fields can have different lengths and require bit-shifting to decode, a simple octet-oriented scheme is used.
+
+In this scheme, data fields have an implied tag value which is not explicitly encoded.
+
+Instead, there is a "current tag value" which is initialized to 0 at the start of the message, and every data field encountered is associated with the current tag value automatically. The current tag value is incremented after the association.
+
+This means no tag values need to be encoded explicitly at all as long as tag values for a message start at 0 and will be assigned contiguously.
+
+Otherwise, tag value increment operators are applied, which increment the current tag value, until the desired tag value for the next data field is reached.
+
+This is implemented by 1-octet opcodes with variable associated payload, which are interpreted when parsing the message:
+
+00-77: data field payload follows, with size of <opcode> bytes
+78: length-prefixed data field follows, prefix is 1 octet
+79: length-prefixed data field follows, prefix is 2 octets
+7a: length-prefixed data field follows, prefix is 4 octets
+7b: length-prefixed data field follows, prefix is 8 octets
+7c: length-prefixed data field follows, prefix is 16 octets
+7d: length-prefixed data field follows, prefix is 32 octets
+7e: length-prefixed data field follows, prefix is 64 octets
+7f-f6: This is a tag increment with the implied value (<opcode> - 0x7d).
+f7: tag increment value follows, size is 1 octet
+f8: tag increment value follows, size is 2 octets
+f9: tag increment value follows, size is 4 octets
+fa: tag increment value follows, size is 8 octets
+fb: tag increment value follows, size is 16 octets
+fc: tag increment value follows, size is 32 octets
+fd: tag increment value follows, size is 64 octets
+fe: explicit end-of-message indicator (normally not required)
+ff: reserved for future extension, illegal to use in current design
+
+There is no byte-padding for the payload data. The message is an octet-stream. Applications must be prepared to process multi-octet arguments from unfavorably aligned buffer offsets.
+
+All multi-octet arguments following the opcode-octet are interpreted as unsigned big-endian integers in base-256 representation. (That is, the smallest possible encoding of a field size or tag-increment value 0x12345 would be the 4 octets 0x00, 0x01, 0x23 and 0x45.)
+
+This encoding allows for tag values and payload sizes of up to 512 bits, which should be sufficient until the end of the universe.
+
+In fact, this scheme allows UUIDs or just long random numbers to be used as tag values, allowing to extend a protocol even without reserving tag value ranges for that purpose.
+
+A compliant reader must be able to parse and process all octet-size variants from the above definition, even though they may refuse to process message which are larger than they can handle because of memory (and address space) restrictions. Most readers are not required to support fields longer than a size_t on their platform. The protocol should privide an error code for that case.
+
+Note that the above definition, other than Google's protocol buffers, make it impossible to have duplicate tag numbers in the same message.
+
+Therefore, those duplicate message numbers can also not be used to emulate "arrays" consisting of fields with the same tag value.
+
+Also, the order of fields cannot be changed without also changing the associated tag values, because the tag values are always incremental.
+
+A tag increment value which overflows the 64-octet tag value shall terminate parsing the message with an error condition.
+
+Implementations are expected to be optimized for small tag-increment or field size values which fit into an "int" or "size_t", meaning protocols should favour small tag values in order to be most efficient. Larger values must still be handled correctly by compliant applications, but possibly much slower.
+
+Like in Google's Protocol Buffers, the encoded field tags or field sizes do not imply any particular encoding of the field's payload data. This is the job of the actual protocol to define.
+
+However, the low-level-message parser shall report the detected octet size of the payload to the high-level message parser which knows about the message definition. The high-level parser can then take this size information into consideration how to decode the field, provided that there are choices.
+
+
+Some protocol encoding recommendations
+--------------------------------------
+
+For unsigned integers, big-endian base-256 encoding is recommended (because it can directly be read from a hex dump).
+
+For signed integers, zig-zag-encoding is recommended.
+
+For floats, IEEE-754 in x86/amd64 "double" representation is recommended.
+
+For booleans, 0x00 shall be used for "false" and 0x01 shall be used for "true".
+
+Strings should be encoded as LATIN-1, UTF-8 or UTF-16. UTF-8 encodes western languages tighter, where UTF-16 encodes CJK-type languages tighter. LATIN-1 is trivial to encode from- and to UNICODE and needs no translation tables to do so, and favours some western languages. (Note that there is no point in supporting UTF-32, because a UTF-16-encoding of the same string can never be larger.) In case of doubt stick with UTF-8.
+
+
+Example
+-------
+
+message place {
+	varint 0:x, 1:y, 8:z;
+	string 1000:name;
+};
+
+where the colons associate tag numbers with the named fields.
+
+Lets' further assume "varint" uses the zig-zag-encoding as recommended above, and "string" uses UTF-8 encoding.
+
+Then lets encode such a message
+
+new place(x= 12, y= 100000, z= -118, name= "test");
+
+Step 1: zig-zag encode the varints into varuints.
+
+Hint: 0, 1, 2, 3, 4, 5 are the zig-zag encodings of 0, -1, +1, -2, +2, -3.
+zigzag(varint) := varint >= 0 ? varint * 2 : -varint * 2 - 1
+
+zigzag(12) == 24 == 0x18 == 1 byte 0x18
+zigzag(100000) == 200000 = 0x30d40 == 3 bytes 0x03, 0x0d, 0x40
+zigzag(-118) == 235 == 0xeb == 1 byte 0xeb
+
+UTF-8("test") == 4 bytes 0x74, 0x65, 0x73, 0x74
+
+Lets now re-write this in the syntax "#<tag-value-decimal>: <hexdump>":
+
+#0: 18
+#1: 03 0d 40
+#8: eb
+#1000: 74 65 73 74
+
+This are the fields with their tags and payloads which need to assemble into a message.
+
+For encoding the tag numbers, we need to sort the fields by tag number first. This happens to be already the case, so we can skip this step in this example.
+
+Next, field numbers need to be replaced by field increment values, assuming the first field is preceded by a virtual field with the (illegal) tag value -1:
+
++1: 18
++1: 03 0d 40
++7: eb
++992: 74 65 73 74
+
+Now convert the tag increments into hexadecimal, and pad them to the smallest minimum size supported by the above encoding (being 1 or 2 bytes in or case):
+
+01: 18
+01: 03 0d 40
+07: eb
+03 e0: 74 65 73 74
+
+Now let's encode this line by line.
+
+Encode 01: 18
+
+The 01 increment can be left off, because it is the default for each field. Therefore, we only need to encode the data field value 0x18. That is, we have one octet to encode. Sizes less than 0x78 (120) are encoded just by the size as an octet, following by the data octets. So the hexdump message encoding up to this field is:
+
+msg: 01 18
+
+Encode 01: 03 0d 40
+
+Again, the 01 is default and need not be encoded explicitly. However, this time we have 3 bytes to encode. Since 3 is still less than 120, we can encode it as an octet 0x03, followed by the 3 data bytes. The message so far:
+
+msg: 01 18 03 03 0d 40
+
+Encode 07: eb
+
+Here we have a tag-increment value other than 1 for the first time. Because the tag increment 7 is less than 0x78, we can encode it implicitly by adding 0x7d to the value, obtaining the opcode 0x84. Then we add the encoding of the 1-byte data field value just as for the first line.
+
+msg: 01 18 03 03 0d 40 84 01 eb
+
+Encode 03 e0: 74 65 73 74
+
+This is the first time the default tag does not apply. We therefore need to encode the field tag increment first, followed by the field encoding.
+
+Here, the field increment value fits into 2 octets, so we can use opcode 0xf8 "tag increment value follows, size is 2 octets". This augments our message to
+
+msg: 01 18 03 03 0d 40 84 01 eb f8 03 e6
+
+Now we add the encoding of the 4 field data payload bytes 0x74, 0x65, 0x73, 09 and 0x74, which finally completes our message encoding:
+
+msg: 01 18 03 03 0d 40 84 01 eb f8 03 e6 04 74 65 73 74
+
+That is, our message has been encoded as 17 bytes.
+
+Let's break that down again, showing the instruction boundaries:
+
+[01] 18 | [03] 03 0d 40 | [84] | [01] eb | [f8] 03 e6 | [04] 74 65 73 74
+
+The bytes in square brackets are opcodes, the remaining bytes up to the next instruction are their arguments.
+
+Anyway, the message format is *way* easier to parse manually than Google's protocol buffer!
+
+Yet it has comparable size, at least when most tag values present in a message have been assigned contiguously.
+
+The encoding is not distinguished, as there are many possibilities to encode the same field lengths or tags increment values.
+
+Therefore, in cases where a distinguished encoding is required (such as for cryptographic applications), the following additional rules shall apply:
+
+* The shortest possible encoding for data field lengths and tag increment values must be used. This also means that the variants with implied values must be preferred where possible.
+
+* Trailing tag increment instructions are also disallowed.
+
+* Two consecutive tag increment instructions are only allowed if they are shorter than a single instruction using the next larger value bitwidth. And even then there is the restriction that all instructions except for the last one must encode the largest possible increment value.
+
+* The shortest possible encoding of the values represented by the data payload must be used. (E. g. no unnecessary leading zeros.)
+
+* Negative zero is forbidden, unless the application actually distinguishes it from positive zero.
+
+* UNICODE strings need to be canonicalized to a particular normalization form (NFC, NFD, etc.)
+
+* More general, any data type encoding used in the message must provide their own rules of how to encode values in a distinguished way, and those rules must be enforced.
+
+* The 0xfe opcode must not be used. (This is a *message* and not a large data stream encoding where indeterminate lengths may be unavoidable.)
