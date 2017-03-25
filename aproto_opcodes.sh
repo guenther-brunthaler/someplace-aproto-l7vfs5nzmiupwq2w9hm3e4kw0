@@ -4,11 +4,11 @@ trap 'test $? = 0 || echo "$0 failed!" >& 2' 0
 o=${0%.sh}.txt
 echo "Generating $o..."
 exec awk -f - << EOF > "$o"
-	function add_head(item) {
+	function front(item) {
 		r[start++]= item
 	}
 
-	function add_tail(item) {
+	function tail(item) {
 		r[--end]= item
 	}
 	
@@ -16,34 +16,37 @@ exec awk -f - << EOF > "$o"
 		return sprintf("%02X", d)
 	}
 	
-	function p7(pfx,    p) {
-		for (p= 1; p <= 64; p+= p) {
-			add_head(pfx " " x(p) " octet" (p == 1 ? "" : "s"))
+	function psz(pfx,    p, n) {
+		n= sizes
+		for (p= 1; n--; p+= p) {
+			front(pfx " " x(p) " octet" (p == 1 ? "" : "s"))
 		}
 	}
 
 	BEGIN{
-		start=0; beyond= end=256
-		add_tail("reserved for future extension," \
+		start= 0; beyond= end= 256; sizes= 7
+		tail("reserved for future extension," \
 			" illegal to use in current design")
-		add_tail("explicit end-of-message indicator" \
+		tail("explicit end-of-message indicator" \
 			" (normally not required)")
-		s23= int((s= end - start) / 3)
-		for (s= s23 + s % 3; s--; ) {
-			add_head("single-octet data field payload with" \
+		reserved= beyond - end
+		s1= s23= int((s= end - start) / 3)
+		for (s= s1+= s % 3; s--; ) {
+			front("single-octet data field payload with" \
 				" implied value " x(start))
 		}
-		s23-= 7
-		for (s= 0; s < s23; ++s) {
-			add_head("data field payload follows, with length" \
-				" (<opcode> - 56 == " x(s) ") bytes")
+		implied= s23 - sizes
+		for (s= 0; s < implied; ++s) {
+			front("data field payload follows, with length" \
+				" (<opcode> - " x(s1) " == " x(s) ") bytes")
 		}
-		p7("length-prefixed data field payload follows, prefix is")
-		for (s= 0; s < s23; ++s) {
-			add_head("tag increment with implied" \
-				" value (<opcode> - A8 == " x(s + 2) ")")
+		psz("length-prefixed data field payload follows, prefix is")
+		for (s= 0; s < implied; ++s) {
+			front("tag increment with implied" \
+				" value (<opcode> - " x(s1 + s23 - reserved) \
+				" == " x(s + reserved) ")")
 		}
-		p7("tag increment value follows as")
+		psz("tag increment value follows as")
 		if (start != end) exit 1
 		print "Opcodes (all values are hexadecimal):"
 		for (start= 0; start < beyond; ++start) {
