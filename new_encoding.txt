@@ -1,11 +1,15 @@
-New, simpler encoding
-=====================
+aproto, an alternative to Google's protocol buffers
+===================================================
+
+aproto uses a simpler encoding than PB, but it should not be too much larger (only a few percent at worst) on the average.
+
+It is better suited for manual inspection using a hex editor, and does not require a barrel shifter in the CPU for efficient implementation.
 
 Instead of comprising a message of tagged data fields where the tags as well as the fields can have different lengths and require bit-shifting to decode, a simple octet-oriented scheme is used.
 
 In this scheme, data fields have an implied tag value which is not explicitly encoded.
 
-Instead, there is a "current tag value" which is initialized to 0 at the start of the message, and every data field encountered is associated with the current tag value automatically. The current tag value is incremented after the association.
+Instead, there is a "current tag value" which is initialized to 0 at the start of the message, and every data field encountered is associated with the current tag value automatically. The current tag value is incremented after each association.
 
 This means no tag values need to be encoded explicitly at all as long as tag values for a message start at 0 and will be assigned contiguously.
 
@@ -22,23 +26,38 @@ This is implemented by 1-octet opcodes with variable associated payload, which a
 7d: length-prefixed data field follows, prefix is 32 octets
 7e: length-prefixed data field follows, prefix is 64 octets
 7f-f6: This is a tag increment with the implied value (<opcode> - 0x7d).
-f7: tag increment value follows, size is 1 octet
-f8: tag increment value follows, size is 2 octets
-f9: tag increment value follows, size is 4 octets
-fa: tag increment value follows, size is 8 octets
-fb: tag increment value follows, size is 16 octets
-fc: tag increment value follows, size is 32 octets
-fd: tag increment value follows, size is 64 octets
+f7: tag increment value follows as 1 octet
+f8: tag increment value follows as 2 octets
+f9: tag increment value follows as 4 octets
+fa: tag increment value follows as 8 octets
+fb: tag increment value follows as 16 octets
+fc: tag increment value follows as 32 octets
+fd: tag increment value follows as 64 octets
 fe: explicit end-of-message indicator (normally not required)
 ff: reserved for future extension, illegal to use in current design
 
+In an easier-to-remember way, this opcode table can also be described as follows:
+
+* Payload length opcodes
+* Tag increment value opcodes
+* 1 premature-end-of-message opcode
+* 1 reserved opcode
+
+Those 4 parts span the whole range of possible octet values, i. e. from 0 to 255.
+
+The first two parts have the same size. Each of those consists of opcodes for from 1 to 64 length bytes as powers-of-two, that is 7 opcodes. Those are located at the end of their part's value ranges. The remaining opcodes at the beginning of each range are used for direct encoding, starting with the minimum value that makes any sense. For payload data lengths, the minimum value is 0 because date fields can be empty. For tag increment values, the minimum value is 2, because 1 is the automatic default increment and does not need to be encoded at all.
+
 There is no byte-padding for the payload data. The message is an octet-stream. Applications must be prepared to process multi-octet arguments from unfavorably aligned buffer offsets.
 
-All multi-octet arguments following the opcode-octet are interpreted as unsigned big-endian integers in base-256 representation. (That is, the smallest possible encoding of a field size or tag-increment value 0x12345 would be the 4 octets 0x00, 0x01, 0x23 and 0x45.)
+Opcode 0xfe is intended for messages of which the parser does not know the exact length in advance. (Indeterminate lengths, are common in stream encoding.) It is also useful for appending messages as a sequence, because the 0xfe opcode is always just one octet in size, whereas a length-prefixed encoding could easily require more than one octet to encode.
 
-This encoding allows for tag values and payload sizes of up to 512 bits, which should be sufficient until the end of the universe.
+All multi-octet arguments with implied size following the opcode-octet are interpreted as unsigned big-endian integers in base-256 representation. (That is, the smallest possible encoding of a field size or tag-increment value 0x12345 would be the 4 octets 0x00, 0x01, 0x23 and 0x45, because only power-of-2 value widths are supported for such values.)
 
-In fact, this scheme allows UUIDs or just long random numbers to be used as tag values, allowing to extend a protocol even without reserving tag value ranges for that purpose.
+This encoding allows for tag values and payload sizes of up to 512 bits, which should be sufficient until the end of the universe and way beyond.
+
+In fact, this scheme allows UUIDs or just long random numbers to be used as tag values, allowing to extend a protocol even without reserving tag value ranges of small numbers for that purpose. This might be especially useful at the outermost level of a large message that represents a complete serialized document of an application. In this case, a UUID-based tag can be mis-used as a document format identifier.
+
+Opcodes 0x7b-0x7e and 0xfc-0xfd are not expected to ever be used in real-life messages, but are rather present to not place any practical limits on the design and compliant processors need to handle them correctly. For instance, if the values have a lot of leading zeros, and are actually much smaller in magnitude.
 
 A compliant reader must be able to parse and process all octet-size variants from the above definition, even though they may refuse to process message which are larger than they can handle because of memory (and address space) restrictions. Most readers are not required to support fields longer than a size_t on their platform. The protocol should privide an error code for that case.
 
@@ -57,31 +76,134 @@ Like in Google's Protocol Buffers, the encoded field tags or field sizes do not 
 However, the low-level-message parser shall report the detected octet size of the payload to the high-level message parser which knows about the message definition. The high-level parser can then take this size information into consideration how to decode the field, provided that there are choices.
 
 
-Some protocol encoding recommendations
---------------------------------------
+Predefined encodings
+--------------------
 
-For unsigned integers, big-endian base-256 encoding is recommended (because it can directly be read from a hex dump).
+Serializers and deserializers complying to this encoding standard shall reserve the following names for native data types with the specified encoding, but are free to add additional ones:
 
-For signed integers, zig-zag-encoding is recommended.
+"int": Default value is 0. A zig-zag-encoded variable-sized integer, actually stored as a "uint". Zig-zag means that the signed numbers 0, -1, +1, -2, +2, etc. are mapped to the unsigned numbers 0, 1, 2, 3, 4, respectively.
 
-For floats, IEEE-754 in x86/amd64 "double" representation is recommended.
+"uint": Default value is 0. A variable-sized unsigned integers, encoded as base-256 octets, most to significant first ("big endian"). For instance, integer 0x1234567 will be encoded as bytes 0x01, 0x23, 0x45, 0x67. Superfluous leading zero bytes within the encoding are allowed, but should be avoided for obvious reasons.
 
-For booleans, 0x00 shall be used for "false" and 0x01 shall be used for "true".
+"boolean": Default value is "false". A restricted subtype of "uint" where only the values 0 and 1 are allowed. Encoded the same as "uint". However, when defining a default value for such a field, only the words "true" and "false" shall be allowed in a message definition. You can define your own "bool" if you don't like this definition.
 
-Strings should be encoded as LATIN-1, UTF-8 or UTF-16. UTF-8 encodes western languages tighter, where UTF-16 encodes CJK-type languages tighter. LATIN-1 is trivial to encode from- and to UNICODE and needs no translation tables to do so, and favours some western languages. (Note that there is no point in supporting UTF-32, because a UTF-16-encoding of the same string can never be larger.) In case of doubt stick with UTF-8.
+"tristate": Default value is "undecided". A restricted subtype of "int" where only the values -1, 0 and +1 are allowed. Encoded the same as "int". However, when defining a default value for such a field, only the words "false"/"no"/"off" (for -1), "maybe"/"undecided"/"missing" (for 0) and "true"/"yes"/"on" (for +1) shall be allowed in a message definition.
+
+"float32": Default value is +0. A 32-bit IEEE-754 binary floating-point number, using the same bit representation as a "float" in the C programming language on an INTEL-80486 CPU in 32-bit protected mode. Denormals, NaNs, INF etc. are all allowed as defined for this platform.
+
+"float64": Default value is +0. A 64-bit IEEE-754 binary floating-point number, using the same bit representation as a "double" in the C programming language on an INTEL-80486 CPU in 32-bit protected mode. (That means the 64-bit variant, not the 80-bit extended variant of "double".) Denormals, NaNs, INF etc. are all allowed as defined for this platform.
+
+"string-8": Default value is an empty string. A string encoded as UTF-8. It does not need to be canonicalized in any way, unless a distinguished message encoding is required. It was considered calling this just "string", but it could be confused with "string-any" (see below) by a human reader, so the suffix is mandatory. It was also considered to name it "string8" without the dash, but this looks ugly and rather like a typing error.
+
+"string-16BE": Default value is an empty string. A string encoded as UTF-16BE. It does not need to be canonicalized in any way, unless a distinguished message encoding is required. It does not use a BOM because the byte-order is fixed (big endian).
+
+"string-16LE": Default value is an empty string. Same as "string-16BE", but uses little-endian byte order.
+
+"string-16?BE": Default value is an empty string. Same as "string-16BE", but an optional BOM as the first character may override the byte-order. That is, big-endian is just the default.
+
+"string-16?LE": Default value is an empty string. Same as "string-16LE", but an optional BOM as the first character may override the byte-order. That is, little-endian is just the default.
+
+"string-1": Default value is an empty string. A string encoded as LATIN-1. It can only contain the first 256 characters from the UNICODE character set. However, if this suffices, it has the advantage that all characters are encoded into just one octet, including most umlauts and accented characters used in western languages.
+
+"string-any": Default value is an empty string. A string using unspecified encoding. Not very useful in actual applications, unless the string has just to be passed through to somewhere else uninterpreted. Not much more than an alias for "opaque", but converying the additional information that the contents are some form of text.
+
+"opaque": Default value is an empty byte string. A byte string of application-specific encoding. Use this also for other native encodings for which the message definition parser has no direct support, such as the C99 "complex" data type. It is the application's responsibility to serialize such values as portable as required.
+
+The above list is *not* intended to ever be extended, creating future name collisions. So there is no need to name your types X-something out of fear of future enhancements. Name your own type "int32" or "decimal" or "complex" if you like. Of course, defining any new types creates a responsibility for you to document the details of your encoding, preferrably as comments (or at least a reference where the details can found) in the message definition file.
+
+For the above 5 UNICODE-based string types, the type name may optionally be preceded by one of the following qualifiers: NFC, NFD, NFKC, NFKD. Those specify that the string values for that field are required to be normalized according to the UNICODE normalization format of the same name, which is probably only of interest for cryptographic applications which. It also means that any specified default constant for such a string must be normalized in the same way, because the protocol compiler won't convert anything. However, it MAY present an error in sich a case (more likely though it won't care). Neither is the run-time required to check for normalization compliance (though it might). Therefore, those qualifiers are primarily a hint to the human reader what sort of normalization is expected/required.
+
+Before those (optional) qualifiers, two other optional qualifiers are allowed: "SCSU-compressed" and "BOCU-1-compressed". They declare that the UNICODE values in this field are expected to be compressed with the compression scheme named after the qualifier. It also means that any declared default value will be encoded this way before actually being used. Like the normalization qualifiers, those compression qualifiers will have no effect on the run-time or the protocol compiler, other than compressing any associated default string literal. And the first version of the protocol compiler certainly won't support that, meaning that for now string fields with that qualifier must not have a default value.
+
+
+Message definition syntax
+-------------------------
+
+# This is a comment to the end of a line.
+# And no, C++ "//" remarks are not supported. Why type 2 characters
+# when one is enough?
+/* This is a comment which may span multiple lines.
+ * It cannot nest, like also not in "C". */
+version 1.0; # Minimum required version of the protocol compiler
+import "other/file.aproto";
+
+message <name> { <field_definitions> ... }
+
+<type> <tag>:<field_name>; # Simple field.
+<type> 0x<hex_tag>:<field_name>; # Simple field.
+<type> <tag1>:<field_name1>, <tag2>:<field_name2> ...; # Share <type>.
+<type> <tag>:<field_name>[]; # List/array.
+<type> <tag>:<field_name>[<type2>]; # Map indexed by <type2>.
+
+enum <name> { <name1> = <constantExpr1>, <name2> = <constantExpr2>, ... }
+enum <name> extends <predecessor_enum> { ... } # Ensure unique values.
+
+typedef <hex_string>:"hint" <name>;
+
+reserve 2, 15, 9 to 11, 3; # Reserve tag numbers.
+reserve foo, bar, prefix_*, *_suffix; # Reserve identifier globs.
+
+expect encoding_length(<typename>) <relop> <constantExpr> octets;
+expect encoding_length(<typename>) <relop> encoding_length(<typename>);
+expect <field_name> <relop> <constantExpr>;
+
+The syntax is generally "C"-like, and semicolons are expected after most statements. However, semicolons are optional befor and after curly braces. They will in fact be considered to be empty statements there, which are allowed but certainly not required.
+
+Tag values are normally small non-negative decimal integers. But they can also be very large hexadecimal bytestrings, prefixed with "0x".
+
+The "typedef"-construct has the same purpose as Google's "Any"-type, i. e. to reference external message definitions by URL or some other means than just a known local file name.
+
+However, "typedef" identifies the external type be <hex_string> rather than by an URL which is not appropriate for long-term identification. <hex_string> is a string of an even number of hexadecimal digits, and should be long enough to avoid any accidental collision with other such strings. It may be a randomized or time-based UUID, a name-based UUID, a salted hash of an URL, whatever. "hint" shall give the human reader an indication what the hex string refers to. It could be the URL for which <hex_string> is the hash value, for instance. However, "hint" is totally ignored by the protocol compiler. In fact, <hex_string> is too because the protocol compiler does not need to know the external definitions. However, other tools might require <hex_string> for locating the external definitions, so it needs to be there.
+
+The "expect"-statements can be made outside or inside a message declaration, depending on whether they refer to fields of a message, or to messages as a whole. They establish assertions what the message reader needs to support, but this does not mean a message with larger values would be invalid. Such a message might just trigger a very likely runtime error that the application could not handle such values. "expect" has no effect on the message encoding, but it may have an effect what sort of code is generated by a code generator. For instance, it might use shorter internal data types for storing the decoded values when an upper limit is known. Expecting a maximum message size might be chosen equal to the MTU for a packet-oriented message transport, and MAY be checked by the run-time code before sending a message. <relop> may be any of the following: "<", "<=", ">=" or ">".
+
+"reserve" reserves ranges of tag numbers or sets of identifiers for future revisions of the message in which the statement is put. In the case of identifiers, simple "globs" are allowed supporting just the wildcard characters "?" for matching any single character, and "*" matching any number of characters (including none). Note that tag number reservations can only be made within a message declaration, while identifier name reservations can also be made at the top-level, when a .aproto file contains more than one message declaration, und even more ones are intended to be added in the future. In this case, "reserve" gives other people an impression what message names to avoid in their own files when "import"-ing the message declarations into there.
+
+Note there are no "required" or "optional" fields. All fields are optional. Ever. Of course, it is possible to define default values for some field which will trigger an error when those values are actually used.
+
+There are no "repeated" fields, because the message encoding mechanism enforces all field tags to be unique.
+
+All the declarations above containing <tag> can also get a default value by inserting
+
+= <constantExpr>
+
+just before the semicolon. In case of arrays, maps or lists, all elements which are missing get the default value. That is, the default value actually acts like the NULL value of SQL there. (The API *does* provide a way of getting the actual number of array entries or detecting the actual end of a list, even though an endless number of virtual entries with the default value will seem to follow after the last element).
+
+<constantExpr> can be any of the following:
+
+<unsigned_decimal_number>
+0x<unsigned_hexdecimal_number>
+-<constantExpr>
+<constantExpr> + <constantExpr>
+<constantExpr> - <constantExpr>
+<constantExpr> * <constantExpr>
+<constantExpr> << <constantExpr>
+<enum_defined_identifier>
+"<string>"
+
+and will be evaluated using <type> for value representation. Division or right-shift is not included because values should be constructed from something smaller, and not being broken down from something larger.
+
+The result of each calculation step must remain in the domain of its value type, i. e. <uint> constants expression must never yield negative partial results.  a << b is just defined as a * pow(2, b) and not as a bit-level operation. (Which make little sense for variable-sized numbers.)
+
+For strings, only the "+" operation is allowed for concatentation. The string will be encoded according to the <type> for which the constant is being constructed. The string literal is expected to be encoded in the same way, including any BOM required at the beginning of the string. I. e. no conversion will be done. This means differently encoded string literals cannot be defined in the same .aproto file. However, other .aproto files can be included with "import".
+
+A .aproto file can start with a BOM to select UTF-8, UTF-16LE or UTF-16BE encoding. Otherwise LATIN-1 encoding is assumed (which is a superset of ASCII and a subset of UNICODE, so no BOM is required as long as you stick to ASCII). The user's current locale is ignored, because .aproto-files should be self-sufficient and portable.
+
+Lists, arrays and maps are implemented as "opaque" bytestrings, containing a sequence of messages, each one terminated with an 0xfe opcode. In the case of lists, just the list entries are concatenated that way. In the case of arrays, the encoding is the same, but a pointer-array MAY be constructed by the run-time for quick random-access to the array elements in a buffer. There is no syntactical or encoding-wise difference between lists and arrays. The run-time framework might decide to create an in-memory pointer array for a list in order to allow faster random-access, making it into an array. Maps are also encoded the same way, but every two entries represent a pair key/value where the key can be used for locating the value. In the case of a distinguished encoding, the binary encodings of the keys must be sorted lexicographically. Otherwise, the order of keys does not matter. And like for lists and arrays, the run-time framework might decide to construct a hash-table for random-accessing the elements of a map. Or it might just scan the list, comparing all the keys as they are encountered.
+
+For now, no protocol compiler exists, and messages need to be encoded/decoded directly by using the appropriate helper functions. However, .aproto files can already be used to document the structure of the processed messages. Later, they may also be used to generate code automatically.
 
 
 Example
 -------
 
+version 1.0;
 message place {
-	varint 0:x, 1:y, 8:z;
-	string 1000:name;
-};
+	int 0:x, 1:y, 8:z;
+	string-8 1000:name;
+}
 
 where the colons associate tag numbers with the named fields.
-
-Lets' further assume "varint" uses the zig-zag-encoding as recommended above, and "string" uses UTF-8 encoding.
 
 Then lets encode such a message
 
@@ -89,13 +211,11 @@ new place(x= 12, y= 100000, z= -118, name= "test");
 
 Step 1: zig-zag encode the varints into varuints.
 
-Hint: 0, 1, 2, 3, 4, 5 are the zig-zag encodings of 0, -1, +1, -2, +2, -3.
-zigzag(varint) := varint >= 0 ? varint * 2 : -varint * 2 - 1
+Hint: 0, 1, 2, 3, 4, 5 are the zig-zag encodings of 0, -1, +1, -2, +2, -3. Therefore zigzag(varint) := varint >= 0 ? varint * 2 : -varint * 2 - 1
 
 zigzag(12) == 24 == 0x18 == 1 byte 0x18
 zigzag(100000) == 200000 = 0x30d40 == 3 bytes 0x03, 0x0d, 0x40
 zigzag(-118) == 235 == 0xeb == 1 byte 0xeb
-
 UTF-8("test") == 4 bytes 0x74, 0x65, 0x73, 0x74
 
 Lets now re-write this in the syntax "#<tag-value-decimal>: <hexdump>":
@@ -105,9 +225,9 @@ Lets now re-write this in the syntax "#<tag-value-decimal>: <hexdump>":
 #8: eb
 #1000: 74 65 73 74
 
-This are the fields with their tags and payloads which need to assemble into a message.
+This are the fields with their tags and payloads which need to be assembled into a message.
 
-For encoding the tag numbers, we need to sort the fields by tag number first. This happens to be already the case, so we can skip this step in this example.
+For encoding the tag numbers, we need to sort the fields by tag number first. This happens to be already the case, so we can skip that step in this example.
 
 Next, field numbers need to be replaced by field increment values, assuming the first field is preceded by a virtual field with the (illegal) tag value -1:
 
@@ -116,7 +236,7 @@ Next, field numbers need to be replaced by field increment values, assuming the 
 +7: eb
 +992: 74 65 73 74
 
-Now convert the tag increments into hexadecimal, and pad them to the smallest minimum size supported by the above encoding (being 1 or 2 bytes in or case):
+Now convert the tag increments into hexadecimal, and pad them to the smallest minimum size supported by the above encoding (being 1 or 2 bytes in our case):
 
 01: 18
 01: 03 0d 40
@@ -125,29 +245,29 @@ Now convert the tag increments into hexadecimal, and pad them to the smallest mi
 
 Now let's encode this line by line.
 
-Encode 01: 18
+Encode "01: 18":
 
-The 01 increment can be left off, because it is the default for each field. Therefore, we only need to encode the data field value 0x18. That is, we have one octet to encode. Sizes less than 0x78 (120) are encoded just by the size as an octet, following by the data octets. So the hexdump message encoding up to this field is:
+The 01 increment can be left off, because it is the default for each field. Therefore, we only need to encode the data field value 0x18. That is, we have one octet to encode. Sizes less than 0x78 (120) are encoded just by the size as an octet, followed by the data octets. So the hexdump message encoding up to this field is:
 
 msg: 01 18
 
-Encode 01: 03 0d 40
+Next, encode "01: 03 0d 40":
 
 Again, the 01 is default and need not be encoded explicitly. However, this time we have 3 bytes to encode. Since 3 is still less than 120, we can encode it as an octet 0x03, followed by the 3 data bytes. The message so far:
 
 msg: 01 18 03 03 0d 40
 
-Encode 07: eb
+Next, encode "07: eb":
 
 Here we have a tag-increment value other than 1 for the first time. Because the tag increment 7 is less than 0x78, we can encode it implicitly by adding 0x7d to the value, obtaining the opcode 0x84. Then we add the encoding of the 1-byte data field value just as for the first line.
 
 msg: 01 18 03 03 0d 40 84 01 eb
 
-Encode 03 e0: 74 65 73 74
+Finally, encode "03 e0: 74 65 73 74":
 
-This is the first time the default tag does not apply. We therefore need to encode the field tag increment first, followed by the field encoding.
+This is the second time the default tag increment does not apply. We therefore need to encode the field tag increment first, followed by the field encoding.
 
-Here, the field increment value fits into 2 octets, so we can use opcode 0xf8 "tag increment value follows, size is 2 octets". This augments our message to
+Here, the field increment value fits into 2 octets, so we can use opcode 0xf8 "tag increment value follows as 2 octets". This augments our message to
 
 msg: 01 18 03 03 0d 40 84 01 eb f8 03 e6
 
@@ -163,7 +283,9 @@ Let's break that down again, showing the instruction boundaries:
 
 The bytes in square brackets are opcodes, the remaining bytes up to the next instruction are their arguments.
 
-Anyway, the message format is *way* easier to parse manually than Google's protocol buffer!
+Note that this encoding does not need bit shifting of masking or anything. No base-128 varints! You can easily decode it manually, looking just at a hex dump and having the opcode table at hand.
+
+The message format is *way* easier to parse manually than Google's protocol buffer.
 
 Yet it has comparable size, at least when most tag values present in a message have been assigned contiguously.
 
@@ -175,7 +297,9 @@ Therefore, in cases where a distinguished encoding is required (such as for cryp
 
 * Trailing tag increment instructions are also disallowed.
 
-* Two consecutive tag increment instructions are only allowed if they are shorter than a single instruction using the next larger value bitwidth. And even then there is the restriction that all instructions except for the last one must encode the largest possible increment value.
+* Two consecutive tag increment instructions are not allowed.
+
+* Tag increments with values less than 2 are forbidden.
 
 * The shortest possible encoding of the values represented by the data payload must be used. (E. g. no unnecessary leading zeros.)
 
