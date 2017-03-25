@@ -30,7 +30,7 @@ exec awk -f - << EOF > "$o"
 			" (normally not required)")
 		s23= int((s= end - start) / 3)
 		for (s= s23 + s % 3; s--; ) {
-			add_head("This is a data field payload with the" \
+			add_head("data field payload with the" \
 				" implied value " x(start))
 		}
 		s23-= 7
@@ -40,8 +40,8 @@ exec awk -f - << EOF > "$o"
 		}
 		p7("length-prefixed data field follows, prefix is")
 		for (s= 0; s < s23; ++s) {
-			add_head("This is a tag increment with the implied" \
-			" value (<opcode> - 0xA8 == " x(s + 2) ")")
+			add_head("tag increment with the implied" \
+				" value (<opcode> - 0xA8 == " x(s + 2) ")")
 		}
 		p7("tag increment value follows as ")
 		if (start != end) exit 1
