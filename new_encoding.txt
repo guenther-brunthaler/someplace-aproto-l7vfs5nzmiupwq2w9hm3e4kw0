@@ -18,16 +18,16 @@ Otherwise, tag value increment operators are applied, which increment the curren
 This is implemented by 1-octet opcodes with variable associated payload, which are interpreted when parsing the message:
 
 -----
-00-55: This is a data field payload with the implied value <opcode>
+00-55: single-octet data field payload with implied value <opcode>
 56-A2: data field payload follows, with length (<opcode> - 0x56) bytes
-A3: length-prefixed data field follows, prefix is 1 octet
-A4: length-prefixed data field follows, prefix is 2 octets
-A5: length-prefixed data field follows, prefix is 4 octets
-A6: length-prefixed data field follows, prefix is 8 octets
-A7: length-prefixed data field follows, prefix is 16 octets
-A8: length-prefixed data field follows, prefix is 32 octets
-A9: length-prefixed data field follows, prefix is 64 octets
-AA-F6: This is a tag increment with the implied value (<opcode> - 0xA8)
+A3 length-prefixed data field payload follows, prefix is 1 octet
+A4 length-prefixed data field payload follows, prefix is 2 octets
+A5 length-prefixed data field payload follows, prefix is 4 octets
+A6 length-prefixed data field payload follows, prefix is 8 octets
+A7 length-prefixed data field payload follows, prefix is 16 octets
+A8 length-prefixed data field payload follows, prefix is 32 octets
+A9 length-prefixed data field payload follows, prefix is 64 octets
+AA-F6 tag increment with implied value (<opcode> - 0xA8)
 F7: tag increment value follows as 1 octet
 F8: tag increment value follows as 2 octets
 F9: tag increment value follows as 4 octets
@@ -47,7 +47,7 @@ In an easier-to-remember way, this opcode table can also be described as follows
 * 1 premature-end-of-message opcode
 * 1 reserved opcode
 
-Those 5 parts span the whole range of possible octet values, i. e. from 0 to 255. First, the 2 special opcodes are reserved at the end. Then the remaining byte range is divided into 3 parts of the same size, with the first part getting any remainder of that division as an additional size bonus. Next, for the second and third parts only, 7 opcodes are allocated from the end of both ranges for representing lengths from 1 to 64 octets, expressed a powers-of-two. The remaining opcodes at the beginning of all three ranges are used for direct encoding, starting with the minimum value that makes any sense. For payload data, the minimum value is 0 because small values are generally more frequent than large ones. For payload data lengths, the minimum value is 0 because data fields can be empty. For tag increment values, the minimum value is 2, because 1 is the automatic default increment and does not need to be encoded at all.
+Those 5 parts span the whole range of possible octet values, i. e. from 0 to 255. First, the 2 special opcodes are reserved at the end. Then the remaining byte range is divided into 3 parts of the same size, with the first part getting any remainder of that division as an additional size bonus. Next, for the second and third parts only, 7 opcodes are allocated from the end of both ranges for representing lengths from 1 to 64 octets, expressed as powers-of-two. The remaining opcodes at the beginning of all three ranges are used for implied encoding of direct values, starting with the minimum value that makes any sense. For payload data, the minimum value is 0 because small values are generally more frequent than large ones. For payload data lengths, the minimum value is 0 because data fields can be empty. For tag increment values, the minimum value is 2, because 1 is the automatic default increment and does not need to be encoded at all.
 
 There is no byte-padding for the payload data. The message is an octet-stream. Applications must be prepared to process multi-octet arguments from unfavorably aligned buffer offsets.
 
