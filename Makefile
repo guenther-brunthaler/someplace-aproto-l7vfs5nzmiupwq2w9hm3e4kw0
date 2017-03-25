@@ -1,7 +1,7 @@
 TARGETS = new_encoding.html aproto_opcodes.txt
 
 .PHONY: all clean
-.SUFFIXES: txt sh html
+.SUFFIXES: .txt .sh .html
 
 all: $(TARGETS)
 
@@ -13,6 +13,6 @@ clean:
 
 
 .sh.txt:
-	$*.sh
+	sh $*.sh
 
 new_encoding.html: new_encoding.txt aproto_opcodes.txt
