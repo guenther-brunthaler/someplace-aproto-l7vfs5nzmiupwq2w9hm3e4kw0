@@ -1,0 +1,4 @@
+[submodule "specs"]
+	path = specs
+	url = ./.
+	branch = aproto-specs
