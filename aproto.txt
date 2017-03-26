@@ -5,6 +5,10 @@ aproto uses a simpler encoding than PB, but it should not be too much larger (on
 
 It is better suited for manual inspection using a hex editor, and does not require a barrel shifter in the CPU for efficient implementation.
 
+aproto does not have any "wire types". It only has a tag value and length for every field. How the data in the field shall be interpreted is totally up to the application protocol. aproto does not care and considers all payload data as opaque octet strings.
+
+There is a minimum storage overhead of 0 octets per field (implied tag and payload values), and a maximum overhead of 130 octets (when using explicit 512-bit tag values and size fields).
+
 Instead of comprising a message of tagged data fields where the tags as well as the fields can have different lengths and require bit-shifting to decode, a simple octet-oriented scheme is used.
 
 In this scheme, data fields have an implied tag value which is not explicitly encoded.
@@ -55,7 +59,7 @@ Opcode 0xfe is intended for messages of which the parser does not know the exact
 
 All multi-octet arguments with implied size following the opcode-octet are interpreted as unsigned big-endian integers in base-256 representation. (That is, the smallest possible encoding of a field size or tag-increment value 0x12345 would be the 4 octets 0x00, 0x01, 0x23 and 0x45, because only power-of-2 value widths are supported for such values.)
 
-This encoding allows for tag values and payload sizes of up to 512 bits, which should be sufficient until the end of the universe and way beyond.
+This encoding allows for tag values and payload size length fields of up to 512 bits, which should be sufficient until the end of the universe and way beyond.
 
 In fact, this scheme allows UUIDs or just long random numbers to be used as tag values, allowing to extend a protocol even without reserving tag value ranges of small numbers for that purpose. This might be especially useful at the outermost level of a large message that represents a complete serialized document of an application. In this case, a UUID-based tag can be mis-used as a document format identifier.
 
@@ -411,3 +415,59 @@ Therefore, in cases where a distinguished encoding is required (such as for cryp
 * More general, any data type encoding used in the message must provide their own rules of how to encode values in a distinguished way, and those rules must be enforced.
 
 * The 0xfe opcode must not be used, except as separator for nested lists/arrays/maps. (This is a *message* and not a large data stream encoding where indeterminate lengths may be unavoidable.)
+
+
+Runtime support routines
+------------------------
+
+Even without an existing implementation of the protocol compiler, aproto is usable by "manually" invoking the runtime routines.
+
+
+Low-Level
+~~~~~~~~~
+
+At the lowest level, there is no support for default values. Fields with a specific tag are either present in a messsage or not.
+
+* Start construction of a new message
+
+* Add a field value with an associated tag value to the message. The field value is an opaque octet string of arbitrary size (from 0 to 2 ** 512 - 1 octets). The tag value is also an arbitrary octet string of the same maximum size, but it cannot be empty (i. e. 1 octet minimum).
+
+* Finalize the message serialization and return a reference to the message as an opaque octet string for subsequent transmission.
+
+* Provide a message in a buffer as an opaque (to the caller) octet string, and prepare to enumerate its fields.
+
+* Return the next field, if any, in ascending tag value order. References to both the tag value and the data payload value will be provided to the caller.
+
+
+Mid-Level
+~~~~~~~~~
+
+The mid level adds support for default values to fields. The mod level still does not try to interpret the data type of fields. All field values as well as their associated default values are considered to be opaque octet strings.
+
+The serializer and deserializers work identically as for the low-level, except that the initialization routines get an additional parameter.
+
+This parameter is a message which has been constructed by the low-level routines, and all fields in this messsage are considered to be default values.
+
+This has the effect that when deserializing a message, that message will be interpreted as an overlay of the message with the default values: Any fields actually present in the message will override the the same fields in the default value message. But any fields missing in the message will be taken from the default value message when enumerating the message values.
+
+When constructing a new message, the default value message will act like a filter: Every value to be added which is identical to the default value will in fact *not* be added.
+
+
+High-Level
+~~~~~~~~~~
+
+The high-level support provides serializers and deserializers for particular protocol data types, such as "int", "uint", "float64" etc.
+
+For every implemented data type, there is a pair of functions. One to serialized the data type, one to deserialize it.
+
+The high-level routines use the mid-level routines as back-end for actually adding the serialized data to the message being constructed, or for reading the data to be deserialized and returned.
+
+
+Protocol-Level
+~~~~~~~~~~~~~~
+
+This is actually part of the application, and calls the high-level routines in order to serialize or deserialize all the fields of a message definition.
+
+This code will be generated by the protocol compiler, and as long as such a compiler does not exist, it has to be written by hand.
+
+This is easy for small messages which do not have a lot of fields, but will be a burden for complex nested messages with many fields.
