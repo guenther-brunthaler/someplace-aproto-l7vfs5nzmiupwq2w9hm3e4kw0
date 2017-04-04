@@ -93,65 +93,67 @@ Serializers and deserializers complying to this encoding standard shall reserve 
 
 * "boolean": Default value is "false". A restricted subtype of "uint" where only the values 0 and 1 are allowed. Encoded the same as "uint". However, when defining a default value for such a field, only the words "true" and "false" shall be allowed in a message definition. You can define your own "bool" if you don't like this definition.
 
-* "tristate": Default value is "undecided". A restricted subtype of "int" where only the values -1, 0 and +1 are allowed. Encoded the same as "int". However, when defining a default value for such a field, only the words "false"/"no"/"off" (for -1), "maybe"/"undecided"/"missing" (for 0) and "true"/"yes"/"on" (for +1) shall be allowed in a message definition.
+* "tristate": Default value is "undecided". A restricted subtype of "int" where only the values -1, 0 and +1 are allowed. Encoded the same as "int". However, when defining a default value for such a field, only the words "false"/"no"/"off" (for -1), "maybe"/"undecided" (for 0) and "true"/"yes"/"on" (for +1) shall be allowed in a message definition.
 
-* "float32": Default value is +0. A 32-bit IEEE-754 binary floating-point number, using the same bit representation as a "float" in the C programming language on an INTEL-80486 CPU in 32-bit protected mode. Denormals, NaNs, INF etc. are all allowed as defined for this platform.
+* "float32": Default value is +0. A 32-bit IEEE-754 binary floating-point number, using the exact same bit representation as a "float" in the C programming language on an INTEL-80486 CPU in 32-bit protected mode. Denormals, NaNs, INF etc. are all allowed as implemented on this platform.
 
-* "float64": Default value is +0. A 64-bit IEEE-754 binary floating-point number, using the same bit representation as a "double" in the C programming language on an INTEL-80486 CPU in 32-bit protected mode. (That means the 64-bit variant, not the 80-bit extended variant of "double".) Denormals, NaNs, INF etc. are all allowed as defined for this platform.
+* "float64": Default value is +0. A 64-bit IEEE-754 binary floating-point number, using the exact same bit representation as a "double" in the C programming language on an INTEL-80486 CPU in 32-bit protected mode. (That means the 64-bit variant, not the 80-bit extended variant of "double".) Denormals, NaNs, INF etc. are all allowed as implemented on this platform.
 
-* "string_8": Default value is an empty string. A string encoded as UTF-8. It does not need to be canonicalized in any way, unless a distinguished message encoding is required. It was considered calling this just "string", but then it might be confused with "string_any" (see below) by a human reader, and so the suffix is mandatory. It was also considered to name it "string8" without the dash, but this looks ugly and rather like a typing error.
+* "string8": Default value is an empty string. A string encoded as UTF-8. It does not need to be canonicalized in any way, unless a distinguished message encoding is required. It was considered calling this just "string", but then it might be confused with "string_any" (see below) by a human reader, and so the suffix is mandatory.
 
-* "string_16BE": Default value is an empty string. A string encoded as UTF-16BE. It does not need to be canonicalized in any way, unless a distinguished message encoding is required. It does not use a BOM (byte-order marker, the character with codepoint 0xFEFF) because the byte-order is fixed (big endian).
+* "string16BE": Default value is an empty string. A string encoded as UTF-16BE. It does not need to be canonicalized in any way, unless a distinguished message encoding is required. It does not use a BOM (byte-order marker, the character with codepoint 0xFEFF) because the byte-order is fixed (big endian).
 
-* "string_16LE": Default value is an empty string. Same as "string_16BE", but uses little-endian byte order.
+* "string16LE": Default value is an empty string. Same as "string16BE", but uses little-endian byte order. It is expected that users of CJK languages will like this type best, whereas Western users prefer UTF-8.
 
-* "string_16dflBE": Default value is an empty string. Same as "string_16BE", but an optional BOM as the first character may override the byte-order. That is, big-endian is just the default.
+* "string16dflBE": Default value is an empty string. Same as "string16BE", but an optional BOM as the first character may override the byte-order. That is, big-endian is just the default.
 
-* "string_16dflLE": Default value is an empty string. Same as "string_16LE", but an optional BOM as the first character may override the byte-order. That is, little-endian is just the default.
+* "string16dflLE": Default value is an empty string. Same as "string16LE", but an optional BOM as the first character may override the byte-order. That is, little-endian is just the default.
 
-* "string_1": Default value is an empty string. A string encoded as LATIN-1, a. k. a. as ISO-8859-1. It can only contain the first 256 characters from the UNICODE character set. However, if this suffices, it has the advantage that all characters are encoded into just one octet, including most umlauts and accented characters used in many Western languages, which would generate a longer encoding for UTF-8.
+* "string1": Default value is an empty string. A string encoded as LATIN-1, a. k. a. as ISO-8859-1. It can only contain the first 256 characters from the UNICODE character set. However, if this suffices, it has the advantage that all characters are encoded into just one octet, including most umlauts and accented characters used in many Western languages, which would generate a longer encoding for UTF-8.
 
-* "ascii": This is in fact a different same for the same encoding as "string_1", and is intended only for text which is *intentionally* not UNICODE. This might be because "string_1" makes it impossible to include special UNICODE characters by accident which could complicate further processing. Even though they are stored identically, "ascii" strings are restricted to having bit 7 set to zero. This will not necessarily be checked by the reader/writer, but it might and would raise a conversion error then. For normal text, "string_8" will be a better choice, because it is the same as ASCII but can also include other UNICODE characters if required. Choosing "ascii" as a string type declares that an application does *not want* to tolerate non-ASCII characters in the text. For instance, FORTRAN or COBOL source code should probably better be restricted to ASCII only. And dinosaurs would probably like ASCII better, too.
+* "ascii": Only 7-bit ASCII characters shall be stored in such a string. ASCII is also known as IA5 (International Alphabet number 5). This is in fact a different same for the same encoding as "string1", and is intended only for text which is *intentionally* not full-fledged UNICODE. This might be because "string1" makes it impossible to include special UNICODE characters by accident which could complicate further processing. Even though they are stored identically, "ascii" strings are restricted to having bit 7 set to zero. This will not necessarily be checked by the reader/writer, but it might and would raise a conversion error then. For normal text, "string8" will be a better choice, because it is the same as "ascii" but can also include other UNICODE characters if required. Choosing "ascii" as a string type declares that an application does *not want* to tolerate non-ASCII characters in the text. For instance, FORTRAN or COBOL source code should probably better be restricted to ASCII only. And dinosaurs would probably like ASCII better, too.
 
-* "string_any": Default value is an empty string. A string using unspecified encoding. Not very useful in actual applications, unless the string has just to be passed through to somewhere else uninterpreted. Not much more than an alias for "opaque", but converying the additional information that the contents are some form of text.
+* "ebcdic": Same as "ascii", but the characters use a different encoding alphabet, EBCDIC. Don't expect I will ever actually implement this. But if you need it, store your EBCDIC strings using this type name when you implement serializer functions for this type yourself.
 
-* "opaque": Default value is an empty byte string. A byte string of application-specific encoding. Use this also for other native encodings for which the message definition parser has no direct support, such as the C99 "complex" data type (if you are too lazy to add a custom data type to the protocol instead). It is the application's responsibility to serialize such values as portable as required.
+* "string_any": Default value is an empty string. A string using unspecified encoding. Not very useful in actual applications, unless the string has just to be passed through to somewhere else uninterpreted. Not much more than an alias for "opaque", but converying the additional information that the contents are some form of text. The actual encoding used for the string can be different for different "string_any" fields within the same message, and can even vary for the same field in different message instances. If you use this field, make sure to document what encoding is actually used under what circumstances. Or document that you just pass through the string and don't care about its encoding.
 
-* "serialdate": Default value is 0. The number of days between 2000-01-01 and a given target date, internally expressed (and encoded as) an "int". That is, 2000-01-01 is encoded as 0, 2000-01-02 is encoded as +1, 1999-12-31 is encoded as -1, etc. The calculations are done using the rules of the Gegorian calender, which is the standard in Western countries, and was introduced on 1582-10-15, which is also the earliest date which should be represented as a "serialdate". Leap seconds cannot have any effect on the calculation, because only whole days are considered. The fact that "serialday" is based on 2000-01-01 means that one byte will suffice to store such an "int" until about the year 2127. (In the actual message encoding, however, at another byte will be required in order to store the length of the encoding.)
+* "opaque": Default value is an empty byte string. A byte string of message-specific encoding. Use this also for other native encodings for which the message definition parser has no direct support, such as the C99 "complex" data type (if you are too lazy to add a custom data type to the protocol instead). It is the application's responsibility to serialize such values as portable as required.
+
+* "serialdate": Default value is 0. The number of days between 2000-01-01 and a given target date, internally expressed (and encoded as) an "int". That is, 2000-01-01 is encoded as 0, 2000-01-02 is encoded as +1, 1999-12-31 is encoded as -1, etc. The calculations are done using the rules of the Gegorian calender, which is the standard in Western countries, and was introduced on 1582-10-15, which is also the earliest date which should be represented as a "serialdate". Leap seconds cannot have any effect on the calculation, because only whole days are considered.
 
 * "tzoffset": Default value is 0, meaning UTC. The offset of some time zone (typically the local one) from UTC, encoded as an "int", expressed as 15-minute-intervals (most time zone offsets are whole hours, but some are offset by 30 or 45 minutes - all of those can be expressed as multiples of 15 minute intervals). In other words, time_as_UTC + 15 * tzoffset * minutes == time_in_associated_timezone.
 
-* "serialtime": Default value is 0. The number of seconds elapsed since midnight of some day in some place, always using the time zone offset which was in effect at exactly that time in that place. Let's say, at the start of that day daylight saving was not in effect, but later that day it became effective. If serialtime is calculated from a time before daylight saving became active, it is based on the same "tzoffset" as the start of the day. Otherwise, it is based on the same "tzoffset" as the next day, which already includes the daylight saving offset. This means "serialtime"-values will never be larger than 24 hours, even if daylight saving started or ended during that day. The conversion of "serialtime" and HH:MM:SS is based on calendar time, and will thus not include leap seconds. It assumes all minutes have exactly 60 seconds. Even though the conversion itself does not care about leap seconds, the operating system functions which get the current HH:MM:SS normally do. So, as long as the time is actually obtained from such a function before converting it to "serialtime", the time expressed by that "serialtime" value will be correct subtracting two such values will calculate the correct time difference, including any leap seconds. This assumes the time stamps are from the same place and date, however. Otherwise, you need to include the "tzoffset" as well as the "serialdate" in the calculation as well, or the timestamps will not be comparable.
+* "serialtime": Default value is 0. The number of seconds elapsed since midnight of some day in some place, always using the time zone offset which was in effect at exactly that time in that place. Let's say, at the start of that day daylight saving was not in effect, but later that day it became effective. If serialtime is calculated from a time before daylight saving became active, it is based on the same "tzoffset" as the start of the day. Otherwise, it is based on the same "tzoffset" as the next day, which already includes the daylight saving offset. It assumes all minutes have exactly 60 seconds. The conversion of "serialtime" and HH:MM:SS is based on calendar time, and will not care about leap seconds (encoding some time [$MM]:60 will decode incorrectly as [$MM+1]:00 - the Linux "date" utility has exactly the same problem). This means "serialtime"-values will never be larger than 24 hours, even if daylight saving started or ended during that day. Even though the conversion itself does not care about leap seconds, the operating system functions which get the current HH:MM:SS normally do. So, as long as the time is actually obtained from such a function before converting it to "serialtime", the time expressed by that "serialtime" value will be correct subtracting two such values will usually calculate the correct time difference, including any leap seconds. This assumes the time stamps are from the same place and date, however. Otherwise, you need to include the "tzoffset" as well as the "serialdate" in the calculation as well, or the timestamps will not be comparable.
 
-* "localdatetime": Default value is 0. This is in fact a predefined "message localdatetime {serialdate 0:date; serialtime 1:time}" which contains everything necessary to compare two timestamps taken in place (with regard to the timezone) on possibly different dates.
+* "localdatetime": Default value is 0. This is in fact a predefined "message localdatetime {serialdate 0:date; serialtime 1:time}" which contains everything necessary to compare two timestamps taken in the same place (with regard to the timezone) on possibly different dates.
 
-* "globaldatetime": Default value is 0. This is in fact a predefined "message globaldatetime {serialdate 0:date; serialtime 1:time; tzoffset 2:tz}" which contains everything necessary to compare two timestamps taken in two possibly different places (with regard to the timezone) on possibly different dates.
+* "globaldatetime": Default value is 0. This is in fact a predefined "message globaldatetime {serialdate 0:date; serialtime 1:time; tzoffset 2:tzo15m}" which contains everything necessary to compare two timestamps taken in two possibly different places (with regard to the timezone) on possibly different dates.
 
-* "decimal", "exactnumber": Default value is 0. This are in fact predefined "message exactnumber {int 0:integral; uint 1:reversed_fractional}; message decimal extends exactnumber {}" which contain everything necessary store a number of any radix base containing any number of fractional digits exactly. In order to do any useful calculations with such numbers, the radix base must be known, though. In the case of "decimal", a radix base of 10 is implied (it is encoded identically to "exactnumber", because the encoding does not include the radix). Use "decimal" to store monetary amounts. Note that encoding a "decimal" requires at least 4 bytes in your message: one byte for the value of both fields, and another byte for storing the encoding length of both fields. Also note that while reversing fractional digits is a rather expensive calculation in the general case, it can be performed very efficiently using a lookup table if not more than 2 or 3 fractional digits are actually required in most cases.
+* "decimal", "exactnumber": Default value is 0. This are in fact predefined "message exactnumber {int 0:integral; uint 1:reversed_fractional}; message decimal extends exactnumber {}" which contain everything necessary store a number of any radix base containing any number of fractional digits exactly. In order to do any useful calculations with such numbers, the radix base must be known, though. For instance, 0x123.456 would be stored as the pair (0x123, 0x654). In the case of "decimal", a radix base of 10 is implied (it is encoded identically to "exactnumber", because the encoding does not include the radix). Use "decimal" to store monetary amounts. Note that while reversing fractional digits is a rather expensive calculation in the general case, it can be performed very efficiently using a lookup table if not more than 2 or 3 fractional digits are actually required in most cases.
 
-* "rational": Default value 0/1. This is in fact a predefined "message rational {int 0:numerator; uint 1:denominator}" which contains everything necessary store a fraction exactly. Whether the fraction needs to be normalized or not is not defined here.
+* "rational": Default value 0/1. This is in fact a predefined "message rational {int 0:numerator; uint 1:denominator}" which contains everything necessary store a fraction exactly. Whether the fraction needs to be normalized or not is not defined here. The following special values are supported: INF == +1/0, -INF == -1/0, IND/QNaN == 0/0. Note that there are an infinite number of additional ways to represent INF and -INF, but only the values above shall be taken as actual synonyms. There is no plain NaN. It is implementation-defined whether display formatting functions use the symbolic names or just display numerator and denominator as-is, i. e. as numbers.
 
-* "portable_binfloat": Default value is +0. This is in fact a predefined "message portable_binfloat {int 0:mantissa; int 1:power_of_2_exponent}" which contains everything necessary to represent a binary floating point number (with 2 being the base for the exponent) from any platform with maximum precision portably and exactly. Note that <mantissa> is usually more than just the mantissa, as it also includes the most significant bit. The value of the exponent will also be adjusted to compensate for the fact that <mantissa> is an integer rather than a fractional value. Special values are represented by <mantissa> == 0 with the following predefined values for <exponent> in those cases: +0.0 == 0, NULL == +1, -0.0 == -1, +INF == +2, -INF == -2, NaN == +3, IND/QNaN == -3. NULL is an extension by this definition, meaning there is no value available yet for this number (like in SQL). Denormal numbers need no special encoding in this definition. Note that while this format can store all known floating-point formats without loss of precision, this does not mean that your platform's native floating-point support can. This means that a conversion from float or double into "portable_binfloat" is normally lossless, but this may not be true in the opposite direction. But even if some rounding might be unavoidable when converting to a native "double" depending on the platform, "portable_binfloat" is still your best option of exchanging binary floating point numbers in the most platform-neutral way possible. Also note that not all platforms may support all features of "portable_binfloat" such as NaNs - the conversion might fail in such cases, and need to be handled specially by the application. It has been considered to add "portable_decfloat" as well, but its practical value was deemed to be too small. As a finishing remark, note that you always the option of using a portable software library such as libmpfr which supports arbitrary precision, rather than using your platform's native floating-point support.
+* "portable_binfloat": Default value is +0. This is in fact a predefined "message portable_binfloat {int 0:mantissa; int 1:power_of_2_exponent}" which contains everything necessary to represent a binary floating point number (with 2 being the base for the exponent) from any platform with maximum precision portably and exactly. Note that <mantissa> is usually more than just the mantissa, as it also includes the most significant bit. The value of the exponent will also be adjusted to compensate for the fact that <mantissa> is an integer rather than a fractional value. Special values are represented by <mantissa> == 0 with the following predefined values for <exponent> in those cases: +0.0 == 0, NULL == +1, -0.0 == -1, +INF == +2, -INF == -2, NaN == +3, IND/QNaN == -3. NULL is an extension by this definition, meaning there is no value available yet for this number (like in SQL). "INF" means "Infinity", "NaN" means "Not a Number", "QNaN" means "Quiet/Signaling NaN", "IND" means "indeterminate number". Denormal numbers need no special encoding in this definition. Note that while this format can store all known floating-point formats without loss of precision, this does not mean that your platform's native floating-point support can. This means that a conversion from float or double into "portable_binfloat" is normally lossless, but this may not be true in the opposite direction. But even if some rounding might be unavoidable when converting to a native "double" depending on the platform, "portable_binfloat" is still your best option of exchanging binary floating point numbers in the most platform-neutral way possible. Also note that not all platforms may support all features of "portable_binfloat" such as NaNs - the conversion might fail in such cases, and need to be handled specially by the application. It has been considered to add "portable_decfloat" as well, but its practical value was deemed to be too small. As a finishing remark, note that you always the option of using a portable software library such as libmpfr which supports arbitrary precision, rather than using your platform's native floating-point support.
 
-* "bitvector": Defaults to an empty array. This is a binary packed array of bits, stored as an octet string. The first octet stores the bits with indexed 0-7, the second octet stores bits 8-15, etc. Within every octet, the least significant bit stores the bit with the lowest array index of that octet, and the most significant bit refers to the highest array index of that octet. It is allowed to write bits beyond the current actual size of the array, bitvector will automatically be enlarged if necessary. There is an infinit number of virtual "0"-bits beyond the last actually allocated octet in the array, which will be returned when reading without growing the array. Also, writing a "0"-bit will never grow the array for the same reason. The API shall provide the information what the highest actually allocated bitvector-index is. Because bits are not necessarily booleans, the values "0" and "1" are considered to be small integers, rather than abstract symbols like "true" or "false".
+* "bitvector": Defaults to an empty array. This is a binary packed array of bits, stored as an octet string. The first octet stores the bits with indexes 0-7, the second octet stores bits 8-15, etc. Within every octet, the least significant bit stores the bit with the lowest array index of that octet, and the most significant bit refers to the highest array index of that octet. It is allowed to write bits beyond the current actual size of the array, bitvector will automatically be enlarged if necessary. There is an infinite number of virtual "0"-bits beyond the last actually allocated octet in the array, which will be returned when reading without growing the array. Also, writing a "0"-bit will never grow the array for the same reason. The API shall provide the information what the highest actually allocated bitvector-index is. Because bits are not necessarily booleans, the values "0" and "1" are considered to be small integers, rather than abstract symbols like "true" or "false".
 
 
 Adding custom type names
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-The above list is *not* intended to ever be extended, creating future name collisions. So there is no need to name your types X-something out of fear of future enhancements. Name your own type "int32" or "complex" if you like. Of course, defining any new types creates a responsibility for you to document the details of your encoding, preferrably as comments (or at least a reference where the details can found) in the message definition file.
+The above list is *not* intended to ever be extended, which might otherwise create future name collisions. So there is no need to name your types X-something out of fear of future enhancements of aproto. Name your own type "int32" or "complex" if you like. Of course, defining any new types creates a responsibility for you to document the details of your encoding, preferrably as comments (or at least a reference where the details can found) in the message definition file.
 
 
 UNICODE normalization qualifiers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For the above 5 UNICODE-based string types, the type name may optionally be preceded by one of the following qualifiers: NFC, NFD, NFKC, NFKD. Those specify that the string values for that field are required to be normalized according to the UNICODE normalization format of the same name, which is probably only of interest for cryptographic applications which. It also means that any specified default constant for such a string must be normalized in the same way, because the protocol compiler won't convert anything. However, it MAY present an error in sich a case (more likely though it won't care). Neither is the run-time required to check for normalization compliance (though it might). Therefore, those qualifiers are primarily a hint to the human reader what sort of normalization is expected/required.
+For the above 5 UNICODE-based string types, the type name may optionally be preceded by one of the following qualifiers: NFC, NFD, NFKC, NFKD. Those specify that the string values for that field are required to be normalized according to the UNICODE normalization format of the same name. If you have no idea what UNICODE normalization is, you probably won't need it. The qualifiers mean that any specified default constant for such a string must be normalized in the same way, because the protocol compiler won't convert anything. However, it MAY present an error in such a case (more likely though it won't care). Neither is the run-time required to check for normalization compliance (though it might). Therefore, those qualifiers are primarily a hint to the human reader what sort of normalization is expected/required.
 
 
 UNICODE compression qualifiers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Before the (optional) UNICODE normalization qualifiers, two other optional qualifiers are allowed: "SCSU-compressed" and "BOCU-1-compressed". They declare that the UNICODE values in this field are expected to be compressed with the compression scheme named after the qualifier. It also means that any declared default value will be encoded this way before actually being used. Like the normalization qualifiers, those compression qualifiers will have no effect on the run-time or the protocol compiler, other than compressing any associated default string literal. And the first version of the protocol compiler certainly won't support that, meaning that for now string fields with that qualifier must not have an explicit default value.
+Before the (optional) UNICODE normalization qualifiers, two other optional qualifiers are allowed: "SCSU-compressed" and "BOCU-1-compressed". They declare that the UNICODE string in this field are expected to be compressed with the compression scheme named after the qualifier. It also means that any declared default value will be encoded this way before actually being used. Like the normalization qualifiers, those compression qualifiers will have no effect on the run-time or the protocol compiler, other than compressing any associated default string literal in the specified way. And the first version of the protocol compiler certainly won't support that, meaning that for now string fields with that qualifier must not have an explicit default value.
 
 
 Current state of implementation
@@ -202,27 +204,27 @@ expect encoding_length(<typename>) <relop> encoding_length(<typename>);
 expect <field_name> <relop> <constantExpr>;
 -----
 
-The syntax is generally "C"-like, and semicolons are expected after most statements. However, semicolons are optional befor and after curly braces. They will in fact be considered to be empty statements there, which are allowed but certainly not required.
+The syntax is generally "C"-like, and semicolons are expected after most statements. However, semicolons are optional before and after curly braces. They will in fact be considered to be empty statements there, which are allowed but certainly not required.
 
-* Tag values are normally small non-negative decimal integers. But they can also be very large hexadecimal bytestrings, prefixed with "0x".
+* Tag values are normally small non-negative decimal integers starting with 0. But they can also be very large hexadecimal bytestrings, prefixed with "0x".
 
-* "enum" can be used to define constants representing small integers. The integers could be enumerated but are not to ensure the actual numeric values can be seen when looking at the protocol definition.
+* "enum" can be used to define constants representing small integers (when used as payload values, not as tags). The integers could be enumerated (i. e. without assigning actual values) but are not to ensure the actual numeric values can always be seen directly when looking at the protocol definition.
 
-The "set of" construct represents a "bitvector" indexed by the values defined in some "enum". Note that it is especially important in this case that the enum-values have been assigned contiguously starting with 0, or the "bitvector" will contain unused bits (other than for octet alignment of its last element).
+The "set of" construct represents a "bitvector" indexed by the values defined in some "enum". Note that it is especially important in this case that the enum-values have been assigned contiguously starting with 0, or the "bitvector" will contain unused bits (other than just for octet alignment of its last element).
 
 * The "global"-construct has the same purpose as Google's "Any"-type, i. e. to reference external message definitions by URL or some other means than just a known local file name. But it can also "export" a type defined in the same .aproto file. It does both. It is like the "extern" keyword in "C" in that regard. It just associates a globally unique ID with a local name. Tools can use the global ID to somehow locate .aproto-files which are logically connected, giving the developer access to all involved definitions.
 
-However, "global" identifies the external type be <hex_string> rather than by an URL (as in Google's "Any") which is not appropriate for long-term identification (DNS domains may change owners). <hex_string> is a string of an even number of hexadecimal digits, and should be long enough to avoid any accidental collision with other such strings. It may be a randomized or time- or name-based UUID, a personalized (salted) hash of an URL, whatever. "hint" shall give the human reader an indication what the hex string refers to. It could be the URL for which <hex_string> is the hash value, for instance. However, "hint" is totally ignored by the protocol compiler. In fact, <hex_string> is too because the protocol compiler does not need to know the external definitions. However, other tools might require <hex_string> for locating the external definitions, so it needs to be there. If in doubt what to use as a hex string, just use a nice random number with a length of at least 16 bytes. This should be long enough to be globally unique for some time. Use 32 Bytes to ensure uniqueness for a very long time (several thousand years at least).
+However, "global" identifies the external type by <hex_string> rather than by an URL (as in Google's "Any") which is not appropriate for long-term identification (DNS domains may change owners). <hex_string> is a string of an even number of hexadecimal digits, and should be long enough to avoid any accidental collision with other such strings. It may be a randomized or time- or name-based UUID, a personalized (salted) hash of an URL, whatever. "hint" shall give the human reader an indication what the hex string refers to. It could be the URL for which <hex_string> is the hash value, for instance. However, "hint" is totally ignored by the protocol compiler. In fact, <hex_string> is too because the protocol compiler does not need to know the external definitions. However, other tools might require <hex_string> for locating the external definitions, so it needs to be there. If in doubt what to use as a hex string, just use a nice random number with a length of at least 16 bytes. This should be long enough to remain globally unique for several years. Use 32 bytes to ensure uniqueness for a very long time (several thousand years at least).
 
-* The "tag_offset" command is like a namespace, only that it affects tag numbers rather than symbolic names. All definitions of tag values which occur within the curly braces will get the large hex number added. That is in "message foo {int 2:a; tag_offset 0x5 {int 3:b}}", foo.a will use tag value 2 but foo.b will use tag value 8. tag_offsets *can* be nested, but they are not additive: Only the innermost tag_offset has an affect (like variables in "C" with the same name in nested scopes).
+* The "tag_offset" command is like a namespace, only that it affects tag numbers rather than symbolic names. All definitions of tag values which occur within the curly braces will get the (usually large) hex number added. That is in "message foo {int 2:a; tag_offset 0x5 {int 3:b}}", foo.a will use tag value 2 but foo.b will use tag value 8. tag_offsets *can* be nested, but they are not additive: Only the innermost tag_offset has an affect (like variables in "C" with the same name in nested scopes).
 
 * The "expect"-statements can be made outside or inside a message declaration, depending on whether they refer to fields of a message, or to messages as a whole. They establish assertions what the message reader needs to support, but this does not mean a message with larger values would be invalid. Such a message might just trigger a very likely runtime error that the application could not handle such values. "expect" has no effect on the message encoding, but it may have an effect what sort of code is generated by a code generator. For instance, it might use shorter internal data types for storing the decoded values when an upper limit is known. Expecting a maximum message size might be chosen equal to the MTU for a packet-oriented message transport, and MAY be checked by the run-time code before sending a message. <relop> may be any of the following: "<", "<=", ">=" or ">".
 
 * "reserve" reserves ranges of tag numbers or sets of identifiers for future revisions of the message in which the statement is put. In the case of identifiers, simple "globs" are allowed supporting just the wildcard characters "?" for matching any single character, and "*" matching any number of characters (including none). Note that tag number reservations can only be made within a message declaration, while identifier name reservations can also be made at the top-level, when a .aproto file contains more than one message declaration, und even more ones are intended to be added in the future. In this case, "reserve" gives other people an impression what message names to avoid in their own files when "import"-ing the message declarations into there.
 
-Note there are no "required" or "optional" fields. All fields are optional. Ever. Of course, it is possible to define default values for some field which will trigger an error when those values are actually used.
+Note there are no "required" or "optional" fields. All fields are optional. Always. Of course, it is possible to define default values for some field which will trigger an error when those default values are actually used rather than explicitly assigned values.
 
-There are no "repeated" fields, because the message encoding mechanism enforces all field tags to be unique.
+There are no "repeated" fields, because the message encoding mechanism enforces all field tags to be unique. Use arrays instead.
 
 All the declarations above containing <tag> can also get a default value by inserting
 
@@ -230,13 +232,15 @@ All the declarations above containing <tag> can also get a default value by inse
 = <constantExpr>
 -----
 
-just before the semicolon. In case of arrays, maps or lists, all elements which are missing get the default value. That is, the default value actually acts like the NULL value of SQL there. (The API *does* provide a way of getting the actual number of array entries or detecting the actual end of a list, even though an endless number of virtual entries with the default value will seem to follow after the last element).
+just before the semicolon. (At least numeric types; for string types string literals within double quotes are used as default values instead.) In case of arrays, maps or lists, all elements which are missing get the default value. That is, the default value actually acts like the NULL value of SQL there. (The API *does* provide a way of getting the actual number of array entries or detecting the actual end of a list, even though an endless number of virtual entries with the default value will seem to follow after the last element).
 
 * <constantExpr> can be any of the following:
 
 -----
 <unsigned_decimal_number>
 0x<unsigned_hexdecimal_number>
+0o<unsigned_octal_number>
+0b<unsigned_binary_number>
 -<constantExpr>
 <constantExpr> + <constantExpr>
 <constantExpr> - <constantExpr>
@@ -248,13 +252,13 @@ just before the semicolon. In case of arrays, maps or lists, all elements which 
 
 and will be evaluated using <type> for value representation. Division or right-shift is not included because values should be constructed from something smaller, and not being broken down from something larger.
 
-The result of each calculation step must remain in the domain of its value type, i. e. <uint> constants expression must never yield negative partial results.  a << b is just defined as a * pow(2, b) and not as a bit-level operation. (Which make little sense for variable-sized numbers.)
+The result of each calculation step must remain in the domain of its value type, i. e. <uint> constants expression must never yield negative partial results. a << b is defined as a * (2 ^ b) where ^ is the exponentiation operator.
 
 For strings, only the "+" operation is allowed for concatentation. The string will be encoded according to the <type> for which the constant is being constructed. The string literal is expected to be encoded in the same way, including any BOM required at the beginning of the string. I. e. no conversion will be done. This means differently encoded string literals cannot be defined in the same .aproto file. However, other .aproto files can be included with "import".
 
-A .aproto file can start with a BOM to select UTF-8, UTF-16LE or UTF-16BE encoding. Otherwise LATIN-1 encoding is assumed (which is a superset of ASCII and a subset of UNICODE, so no BOM is required as long as you stick to ASCII). The user's current locale is ignored, because .aproto-files should be self-sufficient and portable.
+A .aproto file can start with a BOM to select UTF-8, UTF-16LE or UTF-16BE encoding. Otherwise LATIN-1 encoding is assumed (which is both a superset of ASCII as well as a subset of UNICODE, so no BOM is required as long as you stick to ASCII). The user's current locale is ignored, because .aproto-files should be self-sufficient and portable.
 
-Lists, arrays and maps are implemented as "opaque" bytestrings, containing a sequence of messages, each one terminated with an 0xfe opcode. In the case of lists, just the list entries are concatenated that way. In the case of arrays, the encoding is the same, but a pointer-array MAY be constructed by the run-time for quick random-access to the array elements in a buffer. There is no syntactical or encoding-wise difference between lists and arrays. The run-time framework might decide to create an in-memory pointer array for a list in order to allow faster random-access, making it into an array. Maps are also encoded the same way, but every two entries represent a pair key/value where the key can be used for locating the value. In the case of a distinguished encoding, the binary encodings of the keys must be sorted lexicographically. Otherwise, the order of keys does not matter. And like for lists and arrays, the run-time framework might decide to construct a hash-table for random-accessing the elements of a map. Or it might just scan the list, comparing all the keys as they are encountered.
+Lists, arrays and maps are implemented as "opaque" bytestrings, containing a sequence of messages, each one except for the last terminated with an 0xfe opcode. In the case of lists, just the list entries are concatenated that way. In the case of arrays, the encoding is the same, but a pointer-array MAY be constructed by the run-time for quick random-access to the array elements in a buffer. There is no syntactical or encoding-wise difference between lists and arrays. The run-time framework might decide to create an in-memory pointer array for a list in order to allow faster random-access, making it into an array. Maps are also encoded the same way, but every two entries represent a pair key/value where the key can be used for locating the value. In the case of a distinguished encoding, the binary encodings of the keys must be sorted lexicographically. Otherwise, the order of keys does not matter. And like for lists and arrays, the run-time framework might decide to construct a hash-table for random-accessing the elements of a map. Or it might just scan the list, comparing all the keys as they are encountered.
 
 For now, no protocol compiler exists, and messages need to be encoded/decoded directly by using the appropriate helper functions. However, .aproto files can already be used to document the structure of the processed messages. Later, they may also be used to generate code automatically.
 
@@ -266,11 +270,11 @@ Example
 version 1.0;
 message place {
 	int 0:x, 1:y, 8:z;
-	string_8 1000:name;
+	string8 1000:name;
 }
 -----
 
-where the colons associate tag numbers with the named fields.
+where the colons associate tag numbers with field names.
 
 Then lets encode such a message
 
@@ -392,7 +396,7 @@ The message format is *way* easier to parse manually than Google's protocol buff
 include::aproto_opcodes.txt[]
 -----
 
-Yet it has comparable size, at least when most tag values present in a message have been assigned contiguously.
+Yet the aproto message encoding has comparable size, at least when most tag values present in a message have been assigned contiguously.
 
 The encoding is not distinguished, as there are many possibilities to encode the same field lengths or tags increment values.
 
@@ -426,7 +430,9 @@ Even without an existing implementation of the protocol compiler, aproto is usab
 Low-Level
 ~~~~~~~~~
 
-At the lowest level, there is no support for default values. Fields with a specific tag are either present in a messsage or not.
+At the lowest level, there is no support for default values. Fields with a specific tag are either present in a message or not.
+
+There is also no support for sorting the fields or handle duplicate tags. Fields must be added in increasing tag value order.
 
 * Start construction of a new message
 
@@ -502,7 +508,7 @@ Remember that "rational" itself is defined as
 message rational {int 0:numerator; uint 1:denominator}
 -----
 
-Before placing anything into the message, we need to determine the maximum storage size of every field.
+Before allocating space for anything within the message, we need to determine the maximum storage size of every field.
 
 Temperatures can be rational(-400, 10) to rational(+800, 10).
 
@@ -569,14 +575,11 @@ void create_message(
 	unsigned char (*dst)[MSG_SIZE]= (void *)message_buffer;
 	*dst= template;
 	#define store16(off, val) { \
-		uint_fast16_t v; \
+		uint_fast16_t v= (uint_fast16_t)(val); \
 		assert(dst[off] == HI); \
 		dst[off]= (unsigned char)(v >> 8); \
 		assert(dst[off + 1] == LO); \
-		dst[off + 1]= (unsigned char)( \
-				(v= (uint_fast16_t)(val)) \
-			& 	UINT8_C(0xff) \
-		); \
+		dst[off + 1]= (unsigned char)(v & UINT8_C(0xff)); \
 	}
 	store16(off_temp, temperature * 10.0);
 	store16(off_hum, humidity * 100.0);
@@ -628,16 +631,13 @@ The code could even be made possibly more efficient if the platform endianness w
 #else
 	/* Portable variant as fallback. */
 	#define store16(off, val) { \
-		uint_fast16_t v; \
+		uint_fast16_t v= (uint_fast16_t)(val); \
 		assert(dst[off] == HI); \
 		dst[off]= (unsigned char)(v >> 8); \
 		assert(dst[off + 1] == LO); \
-		dst[off + 1]= (unsigned char)( \
-				(v= (uint_fast16_t)(val)) \
-			& 	UINT8_C(0xff) \
-		); \
+		dst[off + 1]= (unsigned char)(v & UINT8_C(0xff)); \
 	}
 #endif
 -----
 
-Nevertheless, constructing aproto messages from scratch is not overly complicated, even though the result is a fully compliant message which any aproto-reader will be able to successfully deserialize.
+Constructing aproto messages from scratch is not overly complicated, even though the result is a fully compliant aproto message which any aproto-reader will be able to successfully deserialize.
