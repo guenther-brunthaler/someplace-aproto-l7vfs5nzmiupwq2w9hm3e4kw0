@@ -16,15 +16,14 @@ exec awk -f - << EOF > "$o"
 		return sprintf("%02X", d)
 	}
 	
-	function psz(pfx,    p, n) {
-		n= sizes
-		for (p= 1; n--; p+= p) {
+	function psz(pfx,    p) {
+		for (p= first_pow2; p <= last_pow2; p+= p) {
 			front(pfx " " x(p) " octet" (p == 1 ? "" : "s"))
 		}
 	}
 
 	BEGIN{
-		start= 0; beyond= end= 256; sizes= 7
+		start= 0; beyond= end= 256; first_pow2= 1; last_pow2= 64
 		tail("reserved for future extension," \
 			" illegal to use in current design")
 		tail("explicit end-of-message indicator" \
@@ -35,7 +34,8 @@ exec awk -f - << EOF > "$o"
 			front("single-octet data field payload with" \
 				" implied value " x(start))
 		}
-		implied= s23 - sizes
+		implied= s23
+		for (s= first_pow2; s <= last_pow2; s+= s) --implied
 		for (s= 0; s < implied; ++s) {
 			front("data field payload follows, with length" \
 				" (<opcode> - " x(s1) " == " x(s) ") bytes")
