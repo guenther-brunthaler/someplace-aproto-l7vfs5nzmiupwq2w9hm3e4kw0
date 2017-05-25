@@ -38,7 +38,7 @@ exec awk -f - << EOF > "$o"
 		for (s= first_pow2; s <= last_pow2; s+= s) --implied
 		for (s= 0; s < implied; ++s) {
 			front("data field payload follows, with length" \
-				" (<opcode> - " x(s1) " == " x(s) ") bytes")
+				" (<opcode> - " x(s1) " == " x(s) ") octets")
 		}
 		psz("length-prefixed data field payload follows, prefix is")
 		for (s= 0; s < implied; ++s) {
