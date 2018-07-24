@@ -1,0 +1,555 @@
+aproto, an alternative to Google's protocol buffers
+===================================================
+
+aproto uses a simpler encoding than PB, but it should not be too much larger (only a few percent at worst) on the average.
+
+It is better suited for manual inspection using a hex editor, and does not require a barrel shifter in the CPU for efficient implementation.
+
+aproto does not have any "wire types". It only has a tag value and length for every field. How the data in the field shall be interpreted is totally up to the application protocol. aproto does not care and considers all payload data as opaque octet strings.
+
+There is a minimum storage overhead of 0 octets per field (implied tag and payload values), and a maximum overhead of 130 octets (when using explicit 512-bit tag values and size fields).
+
+Instead of comprising a message of tagged data fields where the tags as well as the fields can have different lengths and require bit-shifting to decode, a simple octet-oriented scheme is used.
+
+In this scheme, data fields have an implied tag value which is not explicitly encoded.
+
+Instead, there is a "current tag value" which is initialized to 0 at the start of the message, and every data field encountered is associated with the current tag value automatically. The current tag value is incremented after each association.
+
+This means no tag values need to be encoded explicitly at all as long as tag values for a message start at 0 and will be assigned contiguously.
+
+Otherwise, tag value increment operators are applied, which increment the current tag value, until the desired tag value for the next data field is reached.
+
+This is implemented by 1-octet opcodes with variable associated payload, which are interpreted when parsing the message:
+
+[options="header, autowidth"]
+|===============================
+| opcode | Purpose
+| 00-55  | Single-octet data field payload with implied value <opcode>
+| 56-A2  | Data field payload follows, has length (<opcode> - <first_opcode_of_range>) octets
+| A3-A9  | Length-prefixed data field payload follows, prefix length is (2 raised to the power of (<opcode> - <first_opcode_of_range>)) octets: sizeof(length prefix) from 1 to 64 bytes
+| AA-F6  | Tag increment with implied value (<opcode> - <first_opcode_of_range> + 2)
+| F7-FD  | Tag increment value follows as (2 raised to the power of (<opcode> - first_opcode_of_range>)) octets: sizeof(tag increment value) from 1 to 64 bytes
+| FE     | Explicit end-of-message indicator (for separating concatenated sub-messages only)
+| FF     | Reserved for future extension, illegal to use in current design
+|===============================
+
+In an easier-to-remember way, this opcode table can also be described as follows, for the purpose of reconstructing it from memory:
+
+* Implied small payload value opcodes
+* Payload length opcodes
+* Tag increment value opcodes
+* 1 premature-end-of-message opcode
+* 1 reserved opcode
+
+Those 5 parts span the whole range of possible octet values, i. e. from 0 to 255. First, the 2 special opcodes are reserved at the end. Then the remaining byte range is divided into 3 parts of the same size, with the first part getting any remainder of that division as an additional size bonus. Next, for the second and third parts only, opcodes are allocated from the end of both ranges for representing lengths from 1 to 64 octets, expressed as powers-of-two. The remaining opcodes at the beginning of all three ranges are used for implied encoding of direct values, starting with the minimum value that makes any sense. For payload data, the minimum value is 0 because small values are generally more frequent than large ones. For payload data lengths, the minimum value is 0 because data fields can be empty. For tag increment values, the minimum value is 2, because 1 is the automatic default increment and does not need to be encoded at all.
+
+There is no byte-padding for the payload data. The message is an octet-stream. Applications must be prepared to process multi-octet arguments from unfavorably aligned buffer offsets.
+
+Opcode 0xfe is intended for messages of which the parser does not know the exact length in advance. (Indeterminate lengths, are common in stream encoding.) It is also useful for appending messages as a sequence, because the 0xfe opcode is always just one octet in size, whereas a length-prefixed encoding could easily require more than one octet to encode.
+
+All multi-octet arguments with implied size following the opcode-octet are interpreted as unsigned big-endian integers in base-256 representation. (That is, the smallest possible encoding of a field size or tag-increment value 0x12345 would be the 4 octets 0x00, 0x01, 0x23 and 0x45, because only power-of-2 value widths are supported for such values.)
+
+This encoding allows for tag values and payload size length fields of up to 512 bits, which should be sufficient until the end of the universe and way beyond.
+
+In fact, this scheme allows UUIDs or just long random numbers to be used as tag values, allowing to extend a protocol even without reserving tag value ranges of small numbers for that purpose. This might be especially useful at the outermost level of a large message that represents a complete serialized document of an application. In this case, a UUID-based tag can be mis-used as a document format identifier.
+
+Opcodes 0xA6-0xA9 and 0xFD are not expected to ever be used in real-life messages, but are present to not place any conceivable limits on the design. Compliant processors need to handle them correctly. For instance, if the values have a lot of leading zeros, and are actually much smaller in magnitude.
+
+A compliant reader must be able to parse and process all octet-size variants from the above definition, even though they may refuse to process message which are larger than they can handle because of memory (and address space) restrictions. Most readers are not required to actually support fields longer than a size_t on their platform. The protocol should provide an error code for that case.
+
+Note that the above definition, other than Google's protocol buffers, make it impossible to have duplicate tag numbers in the same message.
+
+Therefore, those duplicate message numbers can also not be used to emulate "arrays" consisting of repeated fields with the same tag value.
+
+Also, the order of fields cannot be changed without also changing the associated tag values, because the tag values are always incremental.
+
+A tag increment value which overflows the 64-octet tag value shall terminate parsing the message with an error condition.
+
+Implementations are expected to be optimized for small tag-increment or field size values which fit into a (native) "int" or "size_t", meaning protocols should favour small tag values in order to be most efficient. Larger values must still be handled correctly by compliant applications, but possibly much slower.
+
+Like in Google's Protocol Buffers, the encoded field tags or field sizes do not imply any particular encoding of the field's payload data. This is the job of the actual protocol to define.
+
+However, the low-level-message parser shall report the detected octet size of the payload to the high-level message parser which knows about the message definition. The high-level parser can then take this size information into consideration how to decode the field, provided that there are choices.
+
+include::types.txt[]
+
+
+Message definition syntax
+-------------------------
+
+This section loosely defines the syntax to be used for protocol definition files, as they will be read some day when an actual protocol compiler has been implemented.
+
+Until then, a protocol definition is still useful as a documentation of the message contents, serving a a basis for manually creating serializers an deserializers.
+
+Protocol definitions are text files with an ".aproto" file extension.
+
+-----
+# This is a comment to the end of a line.
+# And no, C++ "//" remarks are not supported. Why type 2 characters
+# when one is enough?
+/* This is a comment which may span multiple lines.
+ * It cannot nest, like also not in "C". */
+version 1.0; # Minimum required version of the protocol compiler
+import "other/file.aproto";
+
+message <name> { <field_definitions> ... }
+message <name1> extends <name2> { ... } # Copy definitions from <name2>.
+tag_offset 0x<hex_string> { <definitions> } # Add an offset to all tag values.
+
+<type> <tag>:<field_name>; # Simple field.
+<type> 0x<hex_tag>:<field_name>; # Simple field.
+<type> <tag1>:<field_name1>, <tag2>:<field_name2> ...; # Share <type>.
+<type> <tag>:<field_name>[]; # List/array.
+<type> <tag>:<field_name>[<type2>]; # Map indexed by <type2>.
+
+enum <name> { <name1> = <constantExpr1>, <name2> = <constantExpr2>, ... }
+enum <name> extends <predecessor_enum> { ... } # Ensure unique values.
+set of <enum_name> <name> # Bitset of defined enum values.
+
+global <hex_string>:"hint" <name>;
+
+reserve 2, 15, 9 to 11, 3; # Reserve tag numbers.
+reserve foo, bar, prefix_*, *_suffix; # Reserve identifier globs.
+
+expect encoding_length(<typename>) <relop> <constantExpr> octets;
+expect encoding_length(<typename>) <relop> encoding_length(<typename>);
+expect <field_name> <relop> <constantExpr>;
+-----
+
+The syntax is generally "C"-like, and semicolons are expected after most statements. However, semicolons are optional before and after curly braces. They will in fact be considered to be empty statements there, which are allowed but certainly not required.
+
+* Tag values are normally small non-negative decimal integers starting with 0. But they can also be very large hexadecimal bytestrings, prefixed with "0x".
+
+* "enum" can be used to define constants representing small integers (when used as payload values, not as tags). The integers could be enumerated (i. e. without assigning actual values) but are not to ensure the actual numeric values can always be seen directly when looking at the protocol definition.
+
+The "set of" construct represents a "bitvector" indexed by the values defined in some "enum". Note that it is especially important in this case that the enum-values have been assigned contiguously starting with 0, or the "bitvector" will contain unused bits (other than just for octet alignment of its last element).
+
+* The "global"-construct has the same purpose as Google's "Any"-type, i. e. to reference external message definitions by URL or some other means than just a known local file name. But it can also "export" a type defined in the same .aproto file. It does both. It is like the "extern" keyword in "C" in that regard. It just associates a globally unique ID with a local name. Tools can use the global ID to somehow locate .aproto-files which are logically connected, giving the developer access to all involved definitions.
+
+However, "global" identifies the external type by <hex_string> rather than by an URL (as in Google's "Any") which is not appropriate for long-term identification (DNS domains may change owners). <hex_string> is a string of an even number of hexadecimal digits, and should be long enough to avoid any accidental collision with other such strings. It may be a randomized or time- or name-based UUID, a personalized (salted) hash of an URL, whatever. "hint" shall give the human reader an indication what the hex string refers to. It could be the URL for which <hex_string> is the hash value, for instance. However, "hint" is totally ignored by the protocol compiler. In fact, <hex_string> is too because the protocol compiler does not need to know the external definitions. However, other tools might require <hex_string> for locating the external definitions, so it needs to be there. If in doubt what to use as a hex string, just use a nice random number with a length of at least 16 bytes. This should be long enough to remain globally unique for several years. Use 32 bytes to ensure uniqueness for a very long time (several thousand years at least).
+
+* The "tag_offset" command is like a namespace, only that it affects tag numbers rather than symbolic names. All definitions of tag values which occur within the curly braces will get the (usually large) hex number added. That is in "message foo {int 2:a; tag_offset 0x5 {int 3:b}}", foo.a will use tag value 2 but foo.b will use tag value 8. tag_offsets *can* be nested, but they are not additive: Only the innermost tag_offset has an affect (like variables in "C" with the same name in nested scopes).
+
+* The "expect"-statements can be made outside or inside a message declaration, depending on whether they refer to fields of a message, or to messages as a whole. They establish assertions what the message reader needs to support, but this does not mean a message with larger values would be invalid. Such a message might just trigger a very likely runtime error that the application could not handle such values. "expect" has no effect on the message encoding, but it may have an effect what sort of code is generated by a code generator. For instance, it might use shorter internal data types for storing the decoded values when an upper limit is known. Expecting a maximum message size might be chosen equal to the MTU for a packet-oriented message transport, and MAY be checked by the run-time code before sending a message. <relop> may be any of the following: "<", "<=", ">=" or ">".
+
+* "reserve" reserves ranges of tag numbers or sets of identifiers for future revisions of the message in which the statement is put. In the case of identifiers, simple "globs" are allowed supporting just the wildcard characters "?" for matching any single character, and "*" matching any number of characters (including none). Note that tag number reservations can only be made within a message declaration, while identifier name reservations can also be made at the top-level, when a .aproto file contains more than one message declaration, and even more ones are intended to be added in the future. In this case, "reserve" gives other people an impression what message names to avoid in their own files when "import"-ing the message declarations into there.
+
+Note there are no "required" or "optional" fields. All fields are optional. Always. Of course, it is possible to define default values for some field which will trigger an error when those default values are actually used rather than explicitly assigned values.
+
+There are no "repeated" fields, because the message encoding mechanism enforces all field tags to be unique. Use arrays instead.
+
+All the declarations above containing <tag> can also get a default value by inserting
+
+-----
+= <constantExpr>
+-----
+
+just before the semicolon. (At least numeric types; for string types string literals within double quotes are used as default values instead.) In case of arrays, maps or lists, all elements which are missing get the default value. That is, the default value actually acts like the NULL value of SQL there. (The API *does* provide a way of getting the actual number of array entries or detecting the actual end of a list, even though an endless number of virtual entries with the default value will seem to follow after the last element).
+
+* <constantExpr> can be any of the following:
+
+-----
+<unsigned_decimal_number>
+0x<unsigned_hexdecimal_number>
+0o<unsigned_octal_number>
+0b<unsigned_binary_number>
+-<constantExpr>
+<constantExpr> + <constantExpr>
+<constantExpr> - <constantExpr>
+<constantExpr> * <constantExpr>
+<constantExpr> << <constantExpr>
+<enum_defined_identifier>
+"<string>"
+-----
+
+and will be evaluated using <type> for value representation. Division or right-shift is not included because values should be constructed from something smaller, and not being broken down from something larger.
+
+The result of each calculation step must remain in the domain of its value type, i. e. <uint> constants expression must never yield negative partial results. a << b is defined as a * (2 ^ b) where ^ is the exponentiation operator.
+
+For strings, only the "+" operation is allowed for concatentation. The string will be encoded according to the <type> for which the constant is being constructed. The string literal is expected to be encoded in the same way, including any BOM required at the beginning of the string. I. e. no conversion will be done. This means differently encoded string literals cannot be defined in the same .aproto file. However, other .aproto files can be included with "import".
+
+A .aproto file can start with a BOM to select UTF-8, UTF-16LE or UTF-16BE encoding. Otherwise LATIN-1 encoding is assumed (which is both a superset of ASCII as well as a subset of UNICODE, so no BOM is required as long as you stick to ASCII characters within the file). The user's current locale is ignored, because .aproto-files should be self-sufficient and portable.
+
+Lists, arrays and maps are implemented as "opaque" bytestrings, containing a sequence of messages, each one except for the last terminated with an 0xfe opcode. In the case of lists, just the list entries are concatenated that way. In the case of arrays, the encoding is the same, but a pointer-array MAY be constructed by the run-time for quick random-access to the array elements in a buffer. There is no syntactical or encoding-wise difference between lists and arrays. The run-time framework might decide to create an in-memory pointer array for a list in order to allow faster random-access, making it into an array. Maps are also encoded the same way, but every two entries represent a pair key/value where the key can be used for locating the value. In the case of a distinguished encoding, the binary encodings of the keys must be sorted lexicographically. Otherwise, the order of keys does not matter. And like for lists and arrays, the run-time framework might decide to construct a hash-table for random-accessing the elements of a map. Or it might just scan the list, comparing all the keys as they are encountered.
+
+For now, no protocol compiler exists, and messages need to be encoded/decoded directly by using the appropriate helper functions. However, .aproto files can already be used to document the structure of the processed messages. Later, they may also be used to generate code automatically.
+
+
+Example
+-------
+
+-----
+version 1.0;
+message place {
+	int 0:x, 1:y, 8:z;
+	string8 1000:name;
+}
+-----
+
+where the colons associate tag numbers with field names.
+
+Then lets encode such a message
+
+-----
+new place(x= 12, y= 100000, z= -118, name= "test");
+-----
+
+Step 1: zig-zag encode the varints into varuints.
+
+Hint: 0, 1, 2, 3, 4, 5 are the zig-zag encodings of 0, -1, +1, -2, +2, -3. Therefore zigzag(varint)= varint >= 0 ? varint * 2 : -varint * 2 - 1
+
+-----
+zigzag(12) == 24 == 0x18 == 1 byte 0x18
+zigzag(100000) == 200000 = 0x30d40 == 3 bytes 0x03, 0x0d, 0x40
+zigzag(-118) == 235 == 0xeb == 1 byte 0xeb
+UTF-8("test") == 4 bytes 0x74, 0x65, 0x73, 0x74
+-----
+
+Lets now re-write this in the syntax "#<tag-value-decimal>: <hexdump>":
+
+-----
+#0: 18
+#1: 03 0d 40
+#8: eb
+#1000: 74 65 73 74
+-----
+
+This are the fields with their tags and payloads which need to be assembled into a message.
+
+For encoding the tag numbers, we need to sort the fields by tag number first. This happens to be already the case, so we can skip that step in this example.
+
+Next, field numbers need to be replaced by field increment values, assuming the first field is preceded by a virtual field with the (illegal) tag value -1:
+
+-----
++1: 18
++1: 03 0d 40
++7: eb
++992: 74 65 73 74
+-----
+
+Now convert the tag increments into hexadecimal, and pad them to the smallest minimum size supported by the above encoding (being 1 or 2 bytes in our case):
+
+-----
+01: 18
+01: 03 0d 40
+07: eb
+03 e0: 74 65 73 74
+-----
+
+Now let's encode this line by line.
+
+Encode "01: 18":
+
+The 01 increment can be left off, because it is the default for each field. Therefore, we only need to encode the data field value 0x18. That is, we have one octet to encode. Single-octet data payloads with an octet value less than 0x56 (86) are encoded just by an opcode with the same value. So the hexdump message encoding up to this field is:
+
+-----
+msg: 18
+-----
+
+Next, encode "01: 03 0D 40":
+
+Again, the 01 is default and need not be encoded explicitly. However, this time we have 3 bytes to encode, which cannot use the implied data field encoding. Instead, we have to encode the size (3 bytes) as an opcode, followed by the data bytes. The encoding allows to encode sizes up to 0x4C (decimal 76) bytes implied within the opcode, so we choose that variant and calculate the opcode value as 0x56 + 3 == 0x59. After this the 3 payload data bytes follow. The message thus becomes:
+
+-----
+msg: 18 59 03 0D 40
+-----
+
+Next, encode "07: EB":
+
+Here we have a tag-increment value other than 1 for the first time. Because the tag increment 7 is less than 0x4F, we can encode it implicitly by adding 0xA8 to the value, obtaining the opcode 0xAF.
+
+-----
+msg: 18 59 03 0D 40 AF
+-----
+
+After adding the necessary tag increment, we need to also need to encode the value 0xEB itself. Unfortunately, this value is larger than 0x55, and cannot therefore be encoded as an implied payload. We need to encode its length explicitly instead, following that encoding by the payload value. However, the size of one octet is small enough to use an opcode with implied length encoding. We choose opcode 0x57 from the opcode table, representing a size of 1 byte, and let our payload data byte follow, yielding
+
+-----
+msg: 18 59 03 0D 40 AF 57 EB
+-----
+
+Finally, encode "03 e0: 74 65 73 74":
+
+This is the second time the default tag increment does not apply. We therefore need to encode the field tag increment first, followed by the field encoding.
+
+Here, the field increment value fits into 2 octets, so we can use opcode 0xF8 "tag increment value follows as 2 octets". This augments our message to
+
+-----
+msg: 18 59 03 0D 40 AF 57 EB F8 03 E6
+-----
+
+Now we add the encoding of the 4 field data payload bytes 0x74, 0x65, 0x73, and 0x74. For this, we can again use implied length encoding, this time the opcode 0x5A, defining that it will be followed by 4 payload data bytes. This finally completes our message encoding:
+
+-----
+msg: 18 59 03 0D 40 AF 57 EB F8 03 E6 5A 74 65 73 74
+-----
+
+That is, our message has been encoded as 16 bytes.
+
+Let's break that down again, showing the instruction boundaries:
+
+-----
+msg: [18] | [59] 03 0D 40 | [AF] | [57] EB | [F8] 03 E6 | [5A] 74 65 73 74
+-----
+
+The bytes in square brackets are opcodes, the remaining bytes up to the next instruction are their arguments.
+
+Note that this encoding does not need bit shifting or masking or anything. No base-128 varints! You can easily decode it manually, looking just at a hex dump and having the opcode table at hand and doing subtractions.
+
+And even the subtractions can be avoided by displaying a more complete table, as generated by the following awk script:
+
+-----
+include::aproto_opcodes.sh[]
+-----
+
+The message format is *way* easier to parse manually than Google's protocol buffer by consulting the following table, created by the above script:
+
+-----
+include::aproto_opcodes.txt[]
+-----
+
+Yet the aproto message encoding has comparable size, at least when most tag values present in a message have been assigned contiguously.
+
+The encoding is not distinguished, as there are many possibilities to encode the same field lengths or tags increment values.
+
+Therefore, in cases where a distinguished encoding is required (such as for cryptographic applications), the following additional rules shall apply:
+
+* The shortest possible encoding for data field lengths and tag increment values must be used. This also means that the variants with implied values must be preferred where possible.
+
+* Trailing tag increment instructions are also disallowed.
+
+* Two consecutive tag increment instructions are not allowed.
+
+* Tag increments with values less than 2 are forbidden.
+
+* The shortest possible encoding of the values represented by the data payload must be used. (E. g. no unnecessary leading zeros.)
+
+* Negative zero is forbidden, unless the application actually distinguishes it from positive zero.
+
+* UNICODE strings need to be canonicalized to a particular normalization form, i. e. one of the NFC, NFD, etc. qualifiers is required. (This does not apply to "string_1" because there are no encoding choices in its character set.)
+
+* More general, any data type encoding used in the message must provide their own rules of how to encode values in a distinguished way, and those rules must be enforced.
+
+* The 0xfe opcode must not be used, except as separator for nested lists/arrays/maps. (This is a *message* and not a large data stream encoding where indeterminate lengths may be unavoidable.)
+
+
+Runtime support routines
+------------------------
+
+Even without an existing implementation of the protocol compiler, aproto is usable by "manually" invoking the runtime routines.
+
+
+Low-Level
+~~~~~~~~~
+
+At the lowest level, there is no support for default values. Fields with a specific tag are either present in a message or not.
+
+There is also no support for sorting the fields or handle duplicate tags. Fields must be added in increasing tag value order.
+
+* Start construction of a new message
+
+* Add a field value with an associated tag value to the message. The field value is an opaque octet string of arbitrary size (from 0 to 2 ** 512 - 1 octets). The tag value is also an arbitrary octet string of the same maximum size, but it cannot be empty (i. e. 1 octet minimum).
+
+* Finalize the message serialization and return a reference to the message as an opaque octet string for subsequent transmission.
+
+* Provide a message in a buffer as an opaque (to the caller) octet string, and prepare to enumerate its fields.
+
+* Return the next field, if any, in ascending tag value order. References to both the tag value and the data payload value will be provided to the caller.
+
+
+Mid-Level
+~~~~~~~~~
+
+The mid level adds support for default values to fields. The mod level still does not try to interpret the data type of fields. All field values as well as their associated default values are considered to be opaque octet strings.
+
+The serializer and deserializers work identically as for the low-level, except that the initialization routines get an additional parameter.
+
+This parameter is a message which has been constructed by the low-level routines, and all fields in this messsage are considered to be default values.
+
+This has the effect that when deserializing a message, that message will be interpreted as an overlay of the message with the default values: Any fields actually present in the message will override the the same fields in the default value message. But any fields missing in the message will be taken from the default value message when enumerating the message values.
+
+When constructing a new message, the default value message will act like a filter: Every value to be added which is identical to the default value will in fact *not* be added.
+
+
+High-Level
+~~~~~~~~~~
+
+The high-level support provides serializers and deserializers for particular protocol data types, such as "int", "uint", "float64" etc.
+
+For every implemented data type, there is a pair of functions. One to serialized the data type, one to deserialize it.
+
+The high-level routines use the mid-level routines as back-end for actually adding the serialized data to the message being constructed, or for reading the data to be deserialized and returned.
+
+
+Protocol-Level
+~~~~~~~~~~~~~~
+
+This is actually part of the application, and calls the high-level routines in order to serialize or deserialize all the fields of a message definition.
+
+This code will be generated by the protocol compiler, and as long as such a compiler does not exist, it has to be written by hand.
+
+This is easy for small messages which do not have a lot of fields, but will be a burden for complex nested messages with many fields.
+
+
+Primitive message construction
+------------------------------
+
+It is possible to use aproto without any run-time support by constructing messages with static layout from scratch.
+
+This might be useful for embedded systems where only simple messages shall be generated, and the inclusion of the low-level run-time routines would be considered overkill.
+
+For such applications, it is possible to initialize the message to be constructed from a static template, and copy the data values at fixed offsets into that template.
+
+This will make the message larger than necessary, obviously, because every message will have the same size, which needs to be large enough for the largest data values.
+
+For instance, let's say we have sensor device which captures temperature and humidity in regular intervals and wants to send this as a aproto message.
+
+Temperature values from -40.0 to +80.0 are supported, and humidity values from +0.00 to +100.00 (the number of fractional digits displayed here shall represent the supported granularity).
+
+We choose "rational" as a data type, with a fixed denominator of 10 for the temperature and 100 for the humidity.
+
+Then we define our message as follows:
+
+-----
+message sensor_report {rational 0:temperature, 1:humidity}
+-----
+
+Remember that "rational" itself is defined as
+
+-----
+message rational {int 0:numerator; uint 1:denominator}
+-----
+
+Before allocating space for anything within the message, we need to determine the maximum storage size of every field.
+
+Temperatures can be rational(-400, 10) to rational(+800, 10).
+
+This is encoded as int(-400) + uint(10) and int(800) + uint(10) where "+" means concatentation of the resulting already-encoded binary strings.
+
+This is further the same as uint(zigzag(-400)) + uint(10) and uint(zigzag(800)) + uint(10).
+
+Which finally encodes as uint(799) + uint(10) and uint(1599) + uint(10).
+
+Even without converting the values explicitly into hexadecimal, we can see that the larger values will require 2 octets of storage, which will also incur a third byte of overhead for storing the size.
+
+The 10 on the other hand is smaller than 0x55 and can thus be stored as single byte without any overhead.
+
+This can be serialized into 4 bytes as shown in the following hex-dump:
+
+-----
+58 TH TL 0A
+-----
+
+Here the 0x58 is the opcode for "2 bytes data payload follow", and "TH TL" is that data payload. It is the big-endian encoding of the temperature numerator, where "TH" is the high-order byte and "TL is the low-order byte. The 0x0a is the fixed denominator value of 10.
+
+Now for the humidity, which can be rational(0, 100) to rational(+100, 100).
+
+This maps to int(0) + uint(100) and int(+10000) + uint(100).
+
+This means uint(zigzag(0)) + uint(100) and uint(zigzag(+10000)) + uint(100).
+
+Which finally evaluates to uint(0) + uint(100) and uint(20000) + uint(100).
+
+We can see that the numerator needs 2 octets and the denominator can be stored as one octet. Unfortunately, 100 is larger than 0x55, so it needs to be stored as a separate data byte. Which incurs one byte overhead for both values for storing the size.
+
+This can be serialized into 5 bytes as shown in the following hex-dump:
+
+-----
+58 HH HL 57 64
+-----
+
+where HH and HL are the high- and low-byte of the humidity numerator, 0x58 is the code for "2 octets of payload data follows", and 0x64 is the encoding of the fixed denominator value 100.
+
+We don't need to store any tag values, because the implicit auto-increment tag values 0 and 1 match exactly the tags of our message.
+
+Combining this, our serialized message looks as follows:
+
+-----
+58 TH TL 0A 58 HH HL 57 64
+-----
+
+Therefore, the following primitive C function can construct such a message:
+
+-----
+#define LO 11
+#define HI 99
+static unsigned char const template[]= {
+	/* 0   1   2     3     4   5   6     7     8 */
+	0x58, HI, LO, 0x0A, 0x58, HI, LO, 0x57, 0x64
+};
+#define off_temp 1
+#define off_hum 5
+#define MSG_SIZE sizeof(template)
+
+void create_message(
+	char (*message_buffer)[MSG_SIZE], double temperature, double humidity
+) {
+	unsigned char (*dst)[MSG_SIZE]= (void *)message_buffer;
+	*dst= template;
+	#define store16(off, val) { \
+		uint_fast16_t v= (uint_fast16_t)(val); \
+		assert(dst[off] == HI); \
+		dst[off]= (unsigned char)(v >> 8); \
+		assert(dst[off + 1] == LO); \
+		dst[off + 1]= (unsigned char)(v & UINT8_C(0xff)); \
+	}
+	store16(off_temp, temperature * 10.0);
+	store16(off_hum, humidity * 100.0);
+	#undef store16
+}
+
+...
+
+main() {
+	...
+	char msg[MSG_SIZE];
+	create_message(&msg, 25.2f, 60.7f);
+	network_send_message(&msg, sizeof(msg));
+	...
+}
+-----
+
+This is just an example, of course. In a real-world embedded application, no-one would ever use a "double" for passing such values.
+
+The code could even be made possibly more efficient if the platform endianness was known in advance:
+
+-----
+#if BIG_ENDIAN && defined UINT16_MAX
+	#define store16(off, val) { \
+		union { \
+			uint16_t v16; \
+			unsigned char v8[2]; \
+		} v; \
+		assert(CHAR_BIT == 8); \
+		v.v16= (uint16_t)(val); \
+		assert(dst[off] == HI); \
+		assert(dst[off + 1] == LO); \
+		dst[off]= v.v8[0]); \
+		dst[off + 1]= v.v8[1]; \
+	}
+#elif LITTLE_ENDIAN && defined UINT16_MAX
+	#define store16(off, val) { \
+		union { \
+			uint16_t v16; \
+			unsigned char v8[2]; \
+		} v; \
+		assert(CHAR_BIT == 8); \
+		v.v16= (uint16_t)(val); \
+		assert(dst[off] == HI); \
+		assert(dst[off + 1] == LO); \
+		dst[off]= v.v8[1]); \
+		dst[off + 1]= v.v8[0]; \
+	}
+#else
+	/* Portable variant as fallback. */
+	#define store16(off, val) { \
+		uint_fast16_t v= (uint_fast16_t)(val); \
+		assert(dst[off] == HI); \
+		dst[off]= (unsigned char)(v >> 8); \
+		assert(dst[off + 1] == LO); \
+		dst[off + 1]= (unsigned char)(v & UINT8_C(0xff)); \
+	}
+#endif
+-----
+
+Constructing aproto messages from scratch is not overly complicated, even though the result is a fully compliant aproto message which any aproto-reader will be able to successfully deserialize.

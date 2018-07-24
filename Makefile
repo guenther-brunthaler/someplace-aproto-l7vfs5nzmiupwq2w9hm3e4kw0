@@ -1,4 +1,4 @@
-TARGETS = aproto.html aproto_opcodes.txt
+TARGETS = aproto.html
 
 .PHONY: all clean
 .SUFFIXES: .txt .sh .html
@@ -15,4 +15,4 @@ clean:
 .sh.txt:
 	sh $*.sh
 
-aproto.html: aproto.txt aproto_opcodes.txt
+aproto.html: aproto.txt
