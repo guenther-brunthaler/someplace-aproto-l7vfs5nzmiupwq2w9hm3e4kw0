@@ -1,3 +1,26 @@
+aproto Message Encoding
+=======================
+
+aproto messages are written in-place into the output buffer. The encoding is intended to be a 1-pass encoding, without a requirement to copy or move the date inside the buffer for "optimizing" it.
+
+In order to achieve this goal, aproto is somewhat unusual in writing field values first, and field metadata last. (So they could be considered to be field trailers rather than field headers.)
+
+However, this has the consequence that messages need to be parsed from the end towards the beginning - in the reverse order as the message was written into the buffer.
+
+This approach has the massive advantage that all field sizes are already known when they are written. When there are different possibilities how to encode lenghts, the most efficient one can be used immediately.
+
+However, there are also some disadvantages:
+
+* Generally, all fields should be written in reverse numerical tag order. This is uintuitive, but allows more space-efficient encoding. This is not mandatory, though - the field order is arbitrary, although the encoding may be longer if the fields are not written sorted by decreasing tag number.
+
+* Array elements must be written in reverse index order. This is because the reader works the other way around, and will then see the elements in the intended order.
+
+* Parsing starts at the end of the message. There must be a way to find the end of the message. If there is not, additional bytes at the beginning are required which specifies the length. Those bytes make the message longer, though. Luckily, most transports can provide a message length.
+
+
+Wire encoding
+-------------
+
 The last octet of a field encoding is the control octet HL.
 
 Its more significant nybble H is the instruction nybble.
