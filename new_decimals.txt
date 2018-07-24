@@ -1,0 +1,21 @@
+Encode fractional digits by adding a single "0" digit and an optional decimal digit after that.
+
+The decimal digit (which defaults to 1 if omitted), represents the negative decimal exponent for the digits before the added "0" digit, if any.
+
+some encoding examples
+
+12 -> 12
+24.5 -> 2450
+24.005 -> 2400503
+100 -> 10000
+0.000000001 -> 109
+
+Packed BCD:
+
+0x0 to 0x9: Decimal digits
+0xa:
+0xb
+0xc
+0xd: decimal point
+0xe:
+0xf
