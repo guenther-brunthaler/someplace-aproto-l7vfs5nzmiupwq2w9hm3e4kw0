@@ -1,0 +1,105 @@
+Predefined field data types and associated wire encodings
+---------------------------------------------------------
+
+The basic wire-encoding does not care about field types. They must be learned by looking into the declarations of the protocol definition files. The wire-encoding treats all data types just as opaque octet-strings.
+
+The following list gives a list of type names which can be used to declare particular data type encodings for fields within protocol definition files.
+
+You are invited to invent your own data types in addition to those declared here. However, the types declared here shall always be interpreted as described here. If you don't like those encodings, just don't use them and create your own encodings using with other names instead.
+
+* A nested message. This is actually not a particular type name, but is rather represented by the name given to a different "message" declaration. Such defined message types can be used as fields in other messages. This is encoded as a byte string, i. e. the field is encoded like a string and contains the complete binary encoding of the nested message as its contents.
+
+* "uint" - an unsigned integer of arbitrary magnitude, encoded as a big-endian integer (written from left to right starting with the most significant digit and followed with increasingly less significant digits). This encoding uses a number-system with radix 256, where every "digit" is represented by an octet. Therefore, the shortest possible encoding for integer 0x12345 will be the byte-sequence 01 23 45. As an optimization, an "empty" uint (i. e. one with a <field_contents> length of 0 bytes) is defined to represent the value 0. Note that this encoding is quite different from Google's "protocol buffers" which use a much more complicated base-128 encoding which requires bit-shifting to decode/decode the values. The "uint"-encoding does not require any bit-shifting.
+
+* "int" - a signed integer of arbitrary magnitude. This is encoded as an "uint" after "zig-zag"-encoding the signed integer value as an unsigned integer. Zig-zag-encoding maps signed integers into unsigned ones as follows: 0, -1, 1, -2, 2, -3, 3, -4, 4, ... are mapped to unsigned 0, 1, 2, 3, 4, 5, 6, 7, 8, ..., respectively. The encoding alternates by describing the next unsigned number and the next signed number not yet described. The unsigned numbers start with 0 and the signed numbers start with -1. Note that this zig-zag-encoding has been "borrowed" from Google's protocol buffers.
+
+* "string", "locale_string", "any_string" - a text string of unspecified encoding or character set. Use this to pass through string values where the encoding is unknown or subject to change. Use "any_string" if the string is known to potentially use different character sets or character encoding depending on the circumstances or changes regularly. Use "string" if you just don't care about the character encoding, and don't even want to know such details. Use "locale_string" if the string will use the character set and encoding defined by the locale which is currently in effect, whatever it may be.
+
+* "octetstring", "bytestring" and "opaque" - a string containing binary bytes that are not necessarily text but may as well be such. The name "bytestring" is deprecated. "octetstring" should be used it it is important/relevant that the string consists of 8-bit bytes. "opaque" should be used to describe a BLOB of data without known (or cared about) internal structure.
+
+* "utf8_string" - a UNICODE string in UTF-8 encoding without a particular normalization form. That is, such a strings may contain a mixture of NFC- and NFD-encoded UNICODE characters.
+
+* "utf16_le_string" - a UNICODE string in UTF-16LE encoding without a particular normalization form (see "uft8_string"). No BOM is used, little-endian representation is mandatory.
+
+* "utf16_be_string" - a UNICODE string in UTF-16BE encoding without a particular normalization form (see "uft8_string"). No BOM is used, big-endian representation is mandatory.
+
+* "utf16_default_le_string" - a UNICODE string in UTF-16 encoding without a particular normalization form (see "uft8_string"). A BOM may be used to indicate the byte order. Without a BOM, the byte order must be little-endian.
+
+* "utf16_default_be_string" - a UNICODE string in UTF-16 encoding without a particular normalization form (see "uft8_string"). A BOM may be used to indicate the byte order. Without a BOM, the byte order must be big-endian.
+
+* "latin1_string" - a UNICODE string which is restricted to the first 256 UNICODE code points, also known as the LATIN1 or ISO-8859-1 character set. Note that this type is probably not very useful any more as it cannot represent the EURO sign. However, it is the most compact and powerful encoding of UNICODE which does not contain any multi-byte encodings. It is also a superset of ASCII and contains most umlauts and diacritics used by western languages.
+
+* "ascii" - a UNICODE string which is restricted to the first 128 UNICODE code points, also known as ASCII, US-ASCII or IA85. It represents all characters als octets with the most significant bit set to 0.
+
+* "ebcdic" - this is just included for completeness. EBCDIC is a character set mostly used on ancient IBM mainframes. It has little significance nowadays, but may still be encountered when dealing with historic data records or ancient applications. It is a 7-bit character set like ASCII, but assigns the characters in a different way to codepoints.
+
+* "boolean": A restricted subtype of "uint" where only the values 0 and 1 are allowed. Note that this is actually a tri-state rather than a real boolean value, because the value can also be NULL if the field is not present at all in the message encoding. NULL could then be interpreted as a third state "maybe" or "undecided". Encoded the same as "uint", including the optimization that an empty <field_contents> represents the value 0 (and thus "false"). However, when defining a default value for such a field, only the words "true" and "false" shall be allowed in a message definition. You can define your own "bool" if you don't like this definition.
+
+* "float": A single-precision floating-point number, using exactly the exact same bit layout (including byte order) as a "float" in the C programming language on the local machine. This type is inherently hardware-specific and may even depend on compiler options. It is therefore non-portable. However, it is normally safe to use for communication between different processes running on the same machine, or if the communication is restricted to other machines sharing the same floating point format details. It has also the advantage of zero conversion overhead.
+
+* "double": A double-precision floating point number. See the documentation for type "float" for details, replacing any reference of the term "float" with "double".
+
+* "pfloat": A portable floating point number. This is in fact a predefined "message pfloat {int mantissa:0 = 1; uint radix:1 = 2; int exponent:2 = 0}" which contains everything necessary to represent a floating point number of any radix base from any platform with maximum precision portably and exactly. This type may have a shorter or longer encoding than "float" and "double", depending on the bit pattern of the value to be encoded. Use this type for portable communication between machines with unknown or different internal floating point implementations or byte orders. Note that <mantissa> is usually more than just the mantissa of a "float"/"double", as it actually includes its most significant bit (no implicit "1" bit) as well as the sign of the number. The value of the exponent will also be adjusted to compensate for the fact that <mantissa> is an integer rather than a fractional value. Special values are represented by <mantissa> == 0 with the following predefined values for <exponent> in those cases: +0.0 == 0, -0.0 == -1, +INF == +2, -INF == -2, NaN == +3, IND/QNaN == -3. "INF" means "Infinity", "NaN" means "Not a Number", "QNaN" means "Quiet/Signaling NaN", "IND" means "indeterminate number". Denormal numbers need no special encoding in this definition because they are not encoded specially in pfloats. Note that while this format can store all known floating-point formats without loss of precision, this does not mean that your platform's native floating-point support can do the same. This means that a conversion from float or double into "pfloat" is intended to be lossless, but this may not be true in the opposite direction. But even if some rounding might be unavoidable when converting to a native "double" depending on the platform, "pfloat" is still your best option of exchanging binary (or decimal) floating point numbers in the most platform-neutral way possible. Also note that not all platforms may support all features of "pfloat" such as NaNs - the conversion might fail in such cases, and need to be handled specially by the application. As a finishing remark, note that you always the option of using a portable software library such as libmpfr which supports arbitrary precision, rather than using your platform's native floating-point support.
+
+* "decimal": This is a radix-10 floating point number with an integer mantissa and a non-positive exponent. Which means the exponent only expresses how many of the right-hand digits of the mantissa are fractional digits, but it cannot shift the mantissa to the left. "decimal" can store decimal numbers with any number of integral and fractional digits exactly. "decimal" is in fact implemented as a predefined "message decimal {int integral:0 = 0; uint base10_exponent:1 = 0}". For simplicity, there is no support for "special" values like NaN or INF when mantissa == 0 - the exponent has no effect in that case and should also be 0 to save space (but this is no requirement). If you want such special values, use "pfloat" instead which also can represent decimal fractional digits exactly. Actually, "decimal" is very similar to "pfloat", except that it implies a radix of 10 and normalization is somewhat easier, because the exponent can never be positive. Most of the time, "dfix4" will produce shorter encodings than "decimal". But "decimal" can store an unrestricted amount of fractional digits exactly.
+
+* "dfix1": This is a decimal number with exactly one fractional digit. It is simply stored multiplied by 10 as an "int". This type is more space-efficient than "dfix4" if the fractional digit is frequently different from zero. Otherwise, if its is known that the vast majority of values to be encoded are in fact integral values without a fractional digit, "dfix4" will be more space-efficient.
+
+* "dfix2": This is a decimal number with exactly two fractional digits. It is simply stored multiplied by 100 as an "int". Note that this encoding might actually be longer than that of "dfix4" if there are trailing fractional zero digits.
+
+* "dfix4": This is a decimal number which can store up to 4 fractional digits. Actually, it can store either 0, 1, 2 or 4 decimal digits. A "dfix4" is internally stored as an "uint", which is composed of two values: m * 4 + f. That is, "f" is a 2-bit bitfield, and "m" is the remaining arbitrarily-sized integer part. "m" will then further be interpreted as a signed "int" (using zig-zag-encoding), and "f" determines the number of fractional decimal digits which are present at the right-hand side of the (now signed) "m". This number of fractional digits calculates as follows from "f": 2 raised to the power of "f", then reduced modulo 8. (In C this can be calculated as "1 << f & 7".) In other words, f == 0 means 1 fractional digit, f == 1 means 2 digits, f == 2 is 4 digits, and f == 3 means no fractional digits at all. "dfix4" is well suited to space-efficiently store monetary amounts for most currencies which rarely need more than 2 or 4 fractional digits. It may not be accurate enough to store bitcoin fractional values, though. Use a "decimal" in those cases which can store an unrestricted amount of fractional decimal digits exactly.
+
+* "rational": This is in fact a predefined "message rational {int numerator:0 = 1; uint denominator:1 = 1}" which contains everything necessary store a fraction exactly. The fraction does not need to be normalized, although the application is of course free to do so. The following special values are supported: INF == +1/0, -INF == -1/0, IND/QNaN == 0/0. Note that there are an infinite number of additional ways to represent INF and -INF, but only the values above shall be taken as actual synonyms. There is no plain NaN. It is implementation-defined whether display formatting functions use the symbolic names or just display numerator and denominator as-is, i. e. as numbers.
+
+* "bitvector": This is a binary packed array of bits, stored as an "octetstring". The first octet stores the bits with indexes 0-7, the second octet stores bits 8-15, etc. Within every octet, the least significant bit stores the bit with the lowest array index of that octet, and the most significant bit refers to the highest array index of that octet. It is allowed to write bits beyond the current actual size of the array, bitvector will automatically be enlarged if necessary. There is an infinite number of virtual "0"-bits beyond the last actually allocated octet in the array, which will be returned when reading without growing the array. This allows the optimization that a "bitvector" with 0 octets of <field_contents> will actually represent a vector filled with infinite many "0" bits. Also, writing a "0"-bit will never grow the array for the same reason. The API shall provide the information what the highest actually allocated bitvector-index is. Because bits are not necessarily booleans, the values "0" and "1" are considered to be small integers, rather than abstract symbols like "true" or "false".
+
+* "serialdate": The number of days between 2000-01-01 and a given target date at the same place, both dates specified in the local time of that place. This number is internally expressed (and encoded as) an "int". That is, 2000-01-01 is encoded as 0, 2000-01-02 is encoded as +1, 1999-12-31 is encoded as -1, etc. The calculations are done using the rules of the Gegorian calender, which is the standard in Western countries, and was introduced on 1582-10-15, which is also the earliest date which should be represented as a "serialdate". Leap seconds cannot have any effect on the calculation, because only whole days are considered.
+
+* "tzoffset": The offset of some time zone (typically the local one) from UTC, encoded as an "int", expressed as 15-minute-intervals (most time zone offsets are whole hours, but some are offset by 30 or 45 minutes - all of those can be expressed as multiples of 15 minute intervals). The value 0 means UTC. In other words, time_as_UTC + 15 * tzoffset * minutes == time_in_associated_timezone.
+
+* "serialtime": The number of seconds elapsed since midnight of some day at some place, always using the time zone offset which was in effect at exactly that time at that place. Let's say, at the start of that day daylight saving was not in effect, but later that day it became effective. If serialtime is calculated from a time before daylight saving became active, it is based on the same "tzoffset" as the start of the day. Otherwise, it is based on the same "tzoffset" as the next day, which already includes the daylight saving offset. It assumes all minutes have exactly 60 seconds. The conversion of "serialtime" and HH:MM:SS is based on calendar time, and will not care about leap seconds (encoding some time [$MM]:60 will decode incorrectly as [$MM+1]:00 - the Linux "date" utility has exactly the same problem). This means "serialtime"-values will never be larger than 24 hours, even if daylight saving started or ended during that day. Even though the conversion itself does not care about leap seconds, the operating system functions which get the current HH:MM:SS normally do. So, as long as the time is actually obtained from such a function before converting it to "serialtime", the time expressed by that "serialtime" value will be correct subtracting two such values will usually calculate the correct time difference, including any leap seconds. This assumes the time stamps are from the same place and date, however. Otherwise, you need to include the "tzoffset" as well as the "serialdate" in the calculation as well, or the timestamps will not be comparable.
+
+* "localdatetime": This is in fact a predefined "message localdatetime {serialdate date:0; serialtime time:1 = 0}" which contains everything necessary to compare two timestamps taken at the same place (with regard to the timezone) on possibly different dates.
+
+* "globaldatetime": This is in fact a predefined "message globaldatetime {serialdate date:0; serialtime time:1 = 0; tzoffset tzo15m:2 = 0}" which contains everything necessary to compare two timestamps taken at two possibly different places (with regard to the timezone) on possibly different dates. Note that the timezone resulting from the default value for tzo15m will be UTC.
+
+
+Adding custom type names
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The above list is *not* intended to ever be extended, which might otherwise create future name collisions. So there is no need to name your types X-something out of fear of future enhancements of the protocol definition syntax and its list of built-in data type names. Name your own type "int32" or "complex" if you like. Of course, defining any new types creates a responsibility for you to document the details of your encoding, preferrably as comments (or at least a reference where the details can found) in the protocol definition file.
+
+
+Notable missing predefined data types
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Even though it is possible to add any desired missing data type as custom type names, I will explain here why some popular data types have not been predefined.
+
+
+int32, int64 etc.
+^^^^^^^^^^^^^^^^^
+
+The existing "int"/"uint" can represent each of those without any disadvantage in terms of encoding efficiency. Together with the "zero-leftpad"-attribute declaration fixed-width encodings of are also possible.
+
+utf32_string
+^^^^^^^^^^^^
+
+UTF-32 encoding is only interesting as an in-memory representation for simpler processing. It makes no sense as an external encoding, because there is no UTF-32 encoding which cannot be replaced by a same-length or shorter equivalent UTF-16 encoding. An UTF-32 encoding of some text is always larger or the same length as UTF-16, but will never save space. Generally, western languages are most efficiently encoded as UTF-8, while eastern CJK languages are most efficiently encoded as UTF-16.
+
+
+UNICODE normalization qualifiers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For those of the above UNICODE-based string types which can potentially represent UNICODE characters normalized as NFD, the type name may optionally be preceded by one of the following qualifiers: NFC, NFD, NFKC, NFKD. Those specify that the string values for that field are required to be normalized according to the UNICODE normalization format of the same name. If you have no idea what UNICODE normalization is, you probably won't need it. The qualifiers mean that any specified default constant for such a string must be normalized in the same way, because the protocol compiler won't convert anything. However, it MAY present an error in such a case (more likely though it won't care). Neither is the run-time required to check for normalization compliance (though it might). Therefore, those qualifiers are primarily a hint to the human reader what sort of normalization is expected/required.
+
+
+UNICODE compression qualifiers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For those of the above UNICODE-based string types which uses multibyte encodings for at least some of its UNICODE characters, and preceding the UNICODE normalization qualifier (if any, as it is optional), one of two further optional qualifiers is allowed: "SCSU-compressed" and "BOCU-1-compressed". They declare that the UNICODE string in this field is expected to be compressed with the compression scheme named after the qualifier. It also means that any declared default value will be encoded this way before actually being used. Like the normalization qualifiers, those compression qualifiers will have no effect on the run-time or the protocol compiler, other than compressing any associated default string literal in the specified way. And the first version of the protocol compiler certainly won't support that, meaning that for now string fields with that qualifier must not have an explicit default value.
+
+
+Current state of implementation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Finally note that most of the encodings above have not actually been implemented yet. I will do so once I actually need them for the first time. Of course, you are free to implement them yourself, provided that the generated encodings comply with and do not contradict the above definitions.
