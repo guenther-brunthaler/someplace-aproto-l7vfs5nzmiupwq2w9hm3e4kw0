@@ -29,7 +29,7 @@ Its less significant nybble L is the argument nybble.
 
 Possible values for H:
 
-5: L is the most significant 4 bits of the absolute tag number to set and 1 more octet for the tag number precedes HL.
+5: L is the most significant 4 bits of the absolute tag number to set and 1 more octet for the tag number precedes HL. Also enables autoincrement mode.
 
 6: L is the size (0-15), and the field value of this size precedes the whole thing
 
@@ -47,45 +47,25 @@ All remaining 9 H values (0, 1, 2, 3, 4, 7, 8, 0xe, 0xf) encode the field value 
 
 There are 16 secondary instructions L for H == 0x0d:
 
-0: Decrement the current tag number by 1. Because the current tag-number will be auto-incremented after its value has been written to a field, this means that the current tag number will now be the same as it was for the last field. This allows to encode array entries easily. If the current tag number was 0 before, then it will wrap around and be set to 0xffff
+0: Decrement the current tag number by 1. If the last tag-number has been auto-incremented after its value was written to the last field, this means that the current tag number will now be the same as it was for the last field. The instruction also disables autoincrement mode. This allows to encode array entries easily. This instruction works modulo 65536: If the current tag number was 0 before, then it will wrap around and be set to 0xffff.
 
-1: Additionally increment the current tag number by 1. This normally results in an increment of 2 relative to the last used tag number because of the auto-increment which already took place. Tag number increment also works modulo 2 ** 16, so incrementing tag number 0xffff will set the tag number for the next field to 0.
+1 ... 0xc: Explicitly increment the current tag number by the same value as L. This actually results in an increment of (L + 1) relative to the last used tag number if autoincrement was in effect and already incremented the tag number back then. Tag number increment works modulo 65536, so incrementing tag number 0xffff will set the tag number for the next field to 0. Also enables autoincrement mode.
 
-2: Additionally increment the current tag number by 2
+0xd: 2 octets for the absolute tag number to be set precede HL. Also enables autoincrement mode.
 
-3: Additionally increment the current tag number by 3
-
-4: Additionally increment the current tag number by 4
-
-5: Additionally increment the current tag number by 5
-
-6: Additionally increment the current tag number by 6
-
-7: Additionally increment the current tag number by 7
-
-8: Additionally increment the current tag number by 8
-
-9: Additionally increment the current tag number by 9
-
-0xa: Additionally increment the current tag number by 0xa
-
-0xb: Additionally increment the current tag number by 0xb
-
-0xc: 2 octets for the absolute tag number to be set precede HL.
-
-0xd: 8 size octets precede HL, and the value precedes the whole thing
-
-0xe: Premature end of (current) message
+0xe: 8 size octets precede HL, and the value precedes the whole thing
 
 0xf: reserved for future extension
 
 
-Multi-octet values:
+Multi-octet values
+------------------
 
 All tag numbers and field lengths which are stored as more than one octet must be encoded as base-256 big-endian unsigned integers (when looking at them in a hex dump, i. e. in writing order). In the parsing direction for the decoder, however, which is right-to-left, they can be considered to be little-endian numbers.
 
 
-Tag numbers:
+Tag numbers
+-----------
 
 Tag numbers are declared in the protocol definition and associated symbolic field names with numberic tags that are actually present in the encoded messages.
 
@@ -97,7 +77,25 @@ If a tag occurs exactly once in the message, this is the field's value or the on
 
 If the same tag value occurs more than once, then those will be ignored for scalar fields, or it represents the next element of the array.
 
-Arrays:
+
+Autoincrement mode
+------------------
+
+Autoincrement mode is initially on when a new message starts and will only be disabled as a side-effect of executing a "Decrement the current tag number by 1"-instruction.
+
+Autoincrement mode has only an effect immediately after a tag value has been written to the buffer. In this case, the current tag number will automatically be incremented by 1.
+
+With autoincrement mode disabled, the current tag number will stay the same after a tag has been written.
+
+Disabling autoincrement mode makes encoding arrays efficient, because writing the whole array only needs a single decrement-by-1 instruction to neutralize the effect of the previously active autoincrement mode, and not again after every array element.
+
+A downside of autoincrement mode is that it actually makes the encoding longer by one octet if an array has exactly 2 elements. But as arrays can have any other size as well, this hopefully will not happen too often.
+
+However, this means that a message representing 2D co-ordinates or 2D vectors is better implemented as a message with two named fields (say "x" and "y") using adjacent tag numbers rather than as a message with a single-field which happens to be an array with 2 elements.
+
+
+Arrays
+------
 
 Fields defined as arrays can either take a specified maximum number of elements or an arbitrary number of entries. In the first case, all present elements after the defined maximum will be ignored.
 
@@ -128,9 +126,10 @@ Then the client has to provide and initialize the following structure:
 typedef struct {
    unsigned char *write_pos; /* Where the next output byte should go. */
    unsigned char *end_of_buffer; /* Points to first byte after the buffer. */
-   unsigned short tag; /* Tag number to use for next output field. */
    /* If not 0, will be called instead of abort() in case of an error. */
    void (*error_handler)(aproto_writer *subject, char const *error_message);
+   int disable_autoincrement; /* 0 for autoincrement mode. */
+   unsigned short tag; /* Tag number to use for next output field. */
 } aproto_writer;
 
 void aproto_write_field(aproto_writer *ctx, size_t value_size);
@@ -143,9 +142,11 @@ Writes the control octet and other metadata information, after the caller has al
 
 <value_size> is the number of octets of the field value which precedes <write_pos>. It can be 0 for empty field values.
 
-<tag> keeps track of the current tag number. The function will try to use the most efficient sequence of instructions which results in this tag number being associated with the field value. The tag number will automatically be incremented by 1 when the function returns successfully. It is the caller's responsibility to initialize the tag value to 0 when the encoding of a new message starts.
-
 <error_handler> can be null - in this case abort() will be called when an error arises, which the caller may also catch by setting a signal handler for SIGABRT. Otherwise it will terminate the process abnormally. Providing an error handler has the advantage that it receives an error message which it can then display. The error handler must never return to its caller. It may therefore raise a signal(), exit(), abort() or longjmp() when it is done. If the error handler needs additional context information, such as a jmp_buf for longjmp(), the caller can embed the whole structure within a larger structure which provides additional variables. The <subject> pointer may then be used to locate those variables.
+
+<disable_autoincrement> determines whether autoincrement mode is active. A non-zero value disabled autoincrement mode. Must be set to zero when a new message starts, because autoincrement mode is the default.
+
+<tag> keeps track of the current tag number. The function will try to use the most efficient sequence of instructions which results in this tag number being associated with the field value. The tag number will automatically be incremented by 1 when the function returns successfully. It is the caller's responsibility to initialize the tag value to 0 when the encoding of a new message starts.
 
 typedef struct {
    unsigned char const *read_pos; /* Points after the next byte to be processed. */

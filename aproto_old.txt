@@ -71,7 +71,7 @@ Like in Google's Protocol Buffers, the encoded field tags or field sizes do not 
 
 However, the low-level-message parser shall report the detected octet size of the payload to the high-level message parser which knows about the message definition. The high-level parser can then take this size information into consideration how to decode the field, provided that there are choices.
 
-include::types.txt[]
+include::field_data_types.txt[]
 
 
 Message definition syntax
